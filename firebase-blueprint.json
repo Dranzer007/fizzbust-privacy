@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "Score": {
+      "title": "Score",
+      "description": "A global high score entry",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user's unique ID"
+        },
+        "userName": {
+          "type": "string",
+          "description": "The display name of the user"
+        },
+        "score": {
+          "type": "integer",
+          "description": "The high score achieved"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["ENDLESS", "TIME_ATTACK"],
+          "description": "The game mode"
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": ["EASY", "MEDIUM", "HARD"],
+          "description": "The difficulty level"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the score was achieved"
+        }
+      },
+      "required": ["uid", "userName", "score", "mode", "difficulty", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/leaderboards/{scoreId}": {
+      "schema": "Score",
+      "description": "Global leaderboard entries"
+    }
+  }
+}

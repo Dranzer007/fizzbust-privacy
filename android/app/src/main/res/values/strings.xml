@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fizz Bust</string>
+    <string name="title_activity_main">Fizz Bust</string>
+    <string name="package_name">com.fizzbust.app</string>
+    <string name="custom_url_scheme">com.fizzbust.app</string>
+</resources>

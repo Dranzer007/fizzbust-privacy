@@ -1,0 +1,79 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: leaderboards
+// Document ID: auto-generated or uid_mode_difficulty
+// Fields:
+//   - uid: string (required) - User's unique ID
+//   - userName: string (required) - Display name
+//   - score: number (required) - The score value
+//   - mode: string (required) - ENDLESS or TIME_ATTACK
+//   - difficulty: string (required) - EASY, MEDIUM, HARD, EXTREME
+//   - timestamp: timestamp (required) - When achieved
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "sujay123sunny@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidScore(data) {
+      return data.keys().hasAll(['uid', 'userName', 'score', 'mode', 'difficulty', 'timestamp']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 50 &&
+             data.score is int && data.score >= 0 &&
+             data.mode in ['ENDLESS', 'TIME_ATTACK'] &&
+             data.difficulty in ['EASY', 'MEDIUM', 'HARD'] &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /leaderboards/{scoreId} {
+      // Leaderboards are publicly readable
+      allow read: if true;
+      
+      // Users can create their own score entries
+      allow create: if isAuthenticated() && 
+                      isValidScore(request.resource.data) && 
+                      request.resource.data.uid == request.auth.uid;
+      
+      // Users can update their own score if it's higher
+      allow update: if isAuthenticated() && 
+                      isOwner(resource.data.uid) && 
+                      isValidScore(request.resource.data) && 
+                      request.resource.data.score >= resource.data.score &&
+                      request.resource.data.uid == resource.data.uid;
+                      
+      // Admins can delete entries
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAdmin();
+    }
+  }
+}
