@@ -42,6 +42,11 @@ function AppContent() {
   const [bottleCount, setBottleCount] = useState(0);
   const [bottleLimit, setBottleLimit] = useState(0);
   const [previousState, setPreviousState] = useState<GameState | null>(null);
+  const gameStateRef = React.useRef(gameState);
+
+  React.useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
 
   const handleStartGame = React.useCallback((d: Difficulty, mode: GameMode = GameMode.ENDLESS) => {
     soundManager.startMusic();
@@ -124,6 +129,31 @@ function AppContent() {
   const handleLoadingComplete = React.useCallback(() => {
     setGameState(GameState.MENU);
     soundManager.startMusic();
+  }, []);
+
+  React.useEffect(() => {
+    const pauseIfPlaying = () => {
+      if (gameStateRef.current === GameState.PLAYING) {
+        setGameState(GameState.PAUSED);
+        soundManager.stopMusic();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        pauseIfPlaying();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', pauseIfPlaying);
+    window.addEventListener('blur', pauseIfPlaying);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', pauseIfPlaying);
+      window.removeEventListener('blur', pauseIfPlaying);
+    };
   }, []);
 
   const handlePause = React.useCallback(() => {
