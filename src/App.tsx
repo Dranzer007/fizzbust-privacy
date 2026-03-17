@@ -16,6 +16,8 @@ import { soundManager } from './services/soundService';
 import { hapticService } from './services/hapticService';
 import { statsService } from './services/statsService';
 import { adService } from './services/adService';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 
 import { LayoutProvider } from './context/LayoutContext';
 
@@ -43,6 +45,7 @@ function AppContent() {
   const [bottleLimit, setBottleLimit] = useState(0);
   const [previousState, setPreviousState] = useState<GameState | null>(null);
   const gameStateRef = React.useRef(gameState);
+  const backgroundPausedRef = React.useRef(false);
 
   React.useEffect(() => {
     gameStateRef.current = gameState;
@@ -132,27 +135,53 @@ function AppContent() {
   }, []);
 
   React.useEffect(() => {
-    const pauseIfPlaying = () => {
+    const pauseForBackground = () => {
+      soundManager.stopMusic();
       if (gameStateRef.current === GameState.PLAYING) {
         setGameState(GameState.PAUSED);
-        soundManager.stopMusic();
+        backgroundPausedRef.current = true;
       }
     };
 
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        pauseIfPlaying();
+      if (document.hidden || document.visibilityState === 'hidden') {
+        pauseForBackground();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', pauseIfPlaying);
-    window.addEventListener('blur', pauseIfPlaying);
+    window.addEventListener('pagehide', pauseForBackground);
+    window.addEventListener('freeze', pauseForBackground as EventListener);
+
+    const capListeners: { remove: () => void }[] = [];
+    const addCapListener = (listenerOrPromise: unknown) => {
+      if (listenerOrPromise && typeof (listenerOrPromise as any).then === 'function') {
+        (listenerOrPromise as Promise<{ remove: () => void }>).then((listener) => {
+          capListeners.push(listener);
+        });
+      } else if (listenerOrPromise && typeof (listenerOrPromise as any).remove === 'function') {
+        capListeners.push(listenerOrPromise as { remove: () => void });
+      }
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      addCapListener(
+        CapacitorApp.addListener('appStateChange', (state) => {
+          if (!state.isActive) pauseForBackground();
+        })
+      );
+      addCapListener(
+        CapacitorApp.addListener('pause', () => {
+          pauseForBackground();
+        })
+      );
+    }
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pagehide', pauseIfPlaying);
-      window.removeEventListener('blur', pauseIfPlaying);
+      window.removeEventListener('pagehide', pauseForBackground);
+      window.removeEventListener('freeze', pauseForBackground as EventListener);
+      capListeners.forEach((listener) => listener.remove());
     };
   }, []);
 

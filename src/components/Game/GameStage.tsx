@@ -442,13 +442,26 @@ export const GameStage: React.FC<GameStageProps> = ({
 
     let points = 1;
 
-    if (isTropical) points *= 2;
-
     if (!isChain && bottle.type === BottleType.TROPICAL) {
       points = 15;
       setIsTropical(true);
-      addFloatingText(bottle.x, bottle.y - 50, "TROPICAL FEVER!", "#FF69B4", true);
-      setTimeout(() => setIsTropical(false), 5000);
+      addFloatingText(bottle.x, bottle.y - 50, "TROPICAL BLAST!", "#FF69B4", true);
+
+      const blastRadius = Math.max(bottle.size * 3.5, stageWidth * 0.22);
+      const targets = bottlesRef.current.filter((b) => {
+        if (b.id === id || b.isOpened || b.isBursting) return false;
+        const dx = b.x - bottle.x;
+        const dy = (b.y + (b.bobOffset || 0)) - bottle.y;
+        return Math.hypot(dx, dy) <= blastRadius;
+      });
+
+      targets.forEach((b) => {
+        setTimeout(() => {
+          handlePop(b.id, false, true);
+        }, Math.random() * 120);
+      });
+
+      setTimeout(() => setIsTropical(false), 600);
     }
 
     if (!isChain && bottle.type === BottleType.FROSTY) {
