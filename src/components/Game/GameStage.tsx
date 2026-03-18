@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Stage, Layer, Rect, Text, Group, Path, Line } from 'react-konva';
+import { Stage, Layer, Rect, Text, Group, Path, Line, Circle } from 'react-konva';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bottle } from './Bottle';
 import { BottleData, Difficulty, DIFFICULTY_CONFIG, GameMode, BottleType, MovementType } from '../../types';
@@ -15,6 +15,60 @@ interface FloatingText {
   text: string;
   color: string;
   isCombo?: boolean;
+}
+
+interface TropicalFlash {
+  id: string;
+  x: number;
+  y: number;
+}
+
+interface TropicalRing {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
+  duration: number;
+  delay: number;
+  border: number;
+  scale: number;
+}
+
+interface TropicalParticle {
+  id: string;
+  x: number;
+  y: number;
+  emoji: string;
+  dx: number;
+  dy: number;
+  duration: number;
+  size: number;
+}
+
+interface TropicalScoreText {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  size: number;
+}
+
+interface TropicalSplat {
+  id: string;
+  blastId: string;
+  startX: number;
+  startY: number;
+  dx: number;
+  dy: number;
+  baseRadius: number;
+  duration: number;
+  startTime: number;
+  color: string;
+  x: number;
+  y: number;
+  radius: number;
+  fill: string;
 }
 
 interface GameStageProps {
@@ -67,6 +121,10 @@ export const GameStage: React.FC<GameStageProps> = ({
   
   const [isSwapping, setIsSwapping] = useState(false);
   const [debugStats, setDebugStats] = useState({ spawns: 0, pops: 0, misses: 0, spawnRate: config.spawnRate });
+  const [tropicalFlash, setTropicalFlash] = useState<TropicalFlash | null>(null);
+  const [tropicalRings, setTropicalRings] = useState<TropicalRing[]>([]);
+  const [tropicalParticles, setTropicalParticles] = useState<TropicalParticle[]>([]);
+  const [tropicalTexts, setTropicalTexts] = useState<TropicalScoreText[]>([]);
   
   const bottlesRef = useRef<BottleData[]>([]);
   const thunderFreezeIdsRef = useRef<Set<string>>(new Set());
@@ -76,6 +134,8 @@ export const GameStage: React.FC<GameStageProps> = ({
   const isPausedRef = useRef(isPausedProp);
   const isStartingRef = useRef(false);
   const lastFrameTime = useRef<number>(0);
+  const tropicalSplatsRef = useRef<TropicalSplat[]>([]);
+  const vfxIdRef = useRef(0);
   
   const requestRef = useRef<number | null>(null);
   const lastSpawnTime = useRef<number>(0);
@@ -224,6 +284,121 @@ export const GameStage: React.FC<GameStageProps> = ({
     }, 800);
   }, []);
 
+  const nextVfxId = () => `vfx-${vfxIdRef.current++}`;
+
+  const withAlpha = (hex: string, alpha: number) => {
+    const clamped = Math.max(0, Math.min(1, alpha));
+    const alphaHex = Math.round(clamped * 255).toString(16).padStart(2, '0');
+    return `${hex}${alphaHex}`;
+  };
+
+  const spawnTropicalText = useCallback((x: number, y: number, text: string, color: string, size: number, delayMs: number = 0) => {
+    const id = nextVfxId();
+    const spawn = () => {
+      setTropicalTexts(prev => [...prev, { id, x, y, text, color, size }]);
+      setTimeout(() => {
+        setTropicalTexts(prev => prev.filter(t => t.id !== id));
+      }, 750);
+    };
+
+    if (delayMs > 0) {
+      setTimeout(() => {
+        if (!isPausedRef.current) spawn();
+      }, delayMs);
+    } else {
+      spawn();
+    }
+  }, []);
+
+  const triggerTropicalVfx = useCallback((originX: number, originY: number, targetPositions: { x: number, y: number, delay: number }[]) => {
+    if (isPausedRef.current) return;
+
+    const flashId = nextVfxId();
+    setTropicalFlash({ id: flashId, x: originX, y: originY });
+    setTimeout(() => {
+      setTropicalFlash(prev => (prev?.id === flashId ? null : prev));
+    }, 700);
+
+    const ringDefs = [
+      { color: '#F28F16', end: 260, duration: 420, delay: 0, border: 3 },
+      { color: '#F2C12E', end: 195, duration: 360, delay: 70, border: 2 },
+      { color: '#F07040', end: 117, duration: 280, delay: 140, border: 2 },
+    ];
+
+    ringDefs.forEach((ring) => {
+      const id = nextVfxId();
+      const scale = ring.end / 16;
+      setTropicalRings(prev => [
+        ...prev,
+        { id, x: originX, y: originY, color: ring.color, duration: ring.duration, delay: ring.delay, border: ring.border, scale }
+      ]);
+      setTimeout(() => {
+        setTropicalRings(prev => prev.filter(r => r.id !== id));
+      }, ring.duration + ring.delay + 30);
+    });
+
+    const particleEmojis = ['🌴', '🍊', '🌿', '✨', '🍑', '💥', '🌟', '🍹'];
+    const particles: TropicalParticle[] = Array.from({ length: 14 }).map((_, i) => {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 55 + Math.random() * 90;
+      const duration = 500 + Math.random() * 400;
+      const size = 10 + Math.random() * 10;
+      return {
+        id: nextVfxId(),
+        x: originX,
+        y: originY,
+        emoji: particleEmojis[i % particleEmojis.length],
+        dx: Math.cos(angle) * distance,
+        dy: Math.sin(angle) * distance,
+        duration,
+        size,
+      };
+    });
+
+    setTropicalParticles(prev => [...prev, ...particles]);
+    particles.forEach((p) => {
+      setTimeout(() => {
+        setTropicalParticles(prev => prev.filter(item => item.id !== p.id));
+      }, p.duration + 30);
+    });
+
+    const blastId = nextVfxId();
+    const now = performance.now();
+    const splatColors = ['#F28F16', '#F2C12E', '#F07040', '#FBBF80', '#E8540A'];
+    const newSplats: TropicalSplat[] = Array.from({ length: 20 }).map((_, i) => {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 30 + Math.random() * 100;
+      const duration = 300 + Math.random() * 400;
+      const radius = 3 + Math.random() * 5;
+      return {
+        id: nextVfxId(),
+        blastId,
+        startX: originX,
+        startY: originY,
+        dx: Math.cos(angle) * distance,
+        dy: Math.sin(angle) * distance,
+        baseRadius: radius,
+        duration,
+        startTime: now,
+        color: splatColors[i % splatColors.length],
+        x: originX,
+        y: originY,
+        radius,
+        fill: withAlpha(splatColors[i % splatColors.length], 1),
+      };
+    });
+
+    tropicalSplatsRef.current = [...tropicalSplatsRef.current, ...newSplats];
+    setTimeout(() => {
+      tropicalSplatsRef.current = tropicalSplatsRef.current.filter(s => s.blastId !== blastId);
+    }, 900);
+
+    spawnTropicalText(originX, originY, '+15 TROPICAL!', '#F2C12E', 16);
+    targetPositions.forEach((pos) => {
+      spawnTropicalText(pos.x, pos.y, '+1', '#FBBF80', 14, pos.delay);
+    });
+  }, [spawnTropicalText]);
+
   const spawnBottle = useCallback((forcedType?: BottleType) => {
     try {
       // Enforce bottle limit
@@ -245,6 +420,18 @@ export const GameStage: React.FC<GameStageProps> = ({
             type = t as BottleType;
             break;
           }
+        }
+      }
+
+      // Easy mode: no power bottles (even if forced).
+      if (difficulty === Difficulty.EASY) {
+        const isPowerType =
+          type === BottleType.GOLDEN ||
+          type === BottleType.FROSTY ||
+          type === BottleType.THUNDER ||
+          type === BottleType.TROPICAL;
+        if (isPowerType) {
+          type = BottleType.LEMON;
         }
       }
 
@@ -414,7 +601,7 @@ export const GameStage: React.FC<GameStageProps> = ({
   }, [difficulty, stageWidth, stageHeight, config]);
 
   const handlePop = useCallback((id: string, isPerfect: boolean = false, isChain: boolean = false) => {
-    if (isPaused) return;
+    if (isPausedRef.current) return;
     const bottle = bottlesRef.current.find(b => b.id === id);
     if (!bottle || bottle.isOpened) return;
     thunderFreezeIdsRef.current.delete(id);
@@ -445,20 +632,41 @@ export const GameStage: React.FC<GameStageProps> = ({
     if (!isChain && bottle.type === BottleType.TROPICAL) {
       points = 15;
       setIsTropical(true);
-      addFloatingText(bottle.x, bottle.y - 50, "TROPICAL BLAST!", "#FF69B4", true);
+      const originX = bottle.x;
+      const originY = bottle.y + (bottle.bobOffset || 0);
+      const blastScale =
+        difficulty === Difficulty.HARD ? 0.75 :
+        difficulty === Difficulty.MEDIUM ? 0.85 :
+        0.9;
+      const blastRadius = Math.max(bottle.size * 3.5, stageWidth * 0.22) * blastScale;
 
-      const blastRadius = Math.max(bottle.size * 3.5, stageWidth * 0.22);
       const targets = bottlesRef.current.filter((b) => {
         if (b.id === id || b.isOpened || b.isBursting) return false;
-        const dx = b.x - bottle.x;
-        const dy = (b.y + (b.bobOffset || 0)) - bottle.y;
+        const dx = b.x - originX;
+        const dy = (b.y + (b.bobOffset || 0)) - originY;
         return Math.hypot(dx, dy) <= blastRadius;
       });
 
-      targets.forEach((b) => {
+      const chainTargets = targets.map((b) => ({
+        bottle: b,
+        delay: 100 + Math.random() * 250
+      }));
+
+      triggerTropicalVfx(
+        originX,
+        originY,
+        chainTargets.map(({ bottle: tb, delay }) => ({
+          x: tb.x,
+          y: tb.y + (tb.bobOffset || 0),
+          delay
+        }))
+      );
+
+      chainTargets.forEach(({ bottle: tb, delay }) => {
         setTimeout(() => {
-          handlePop(b.id, false, true);
-        }, Math.random() * 120);
+          if (isPausedRef.current) return;
+          handlePop(tb.id, false, true);
+        }, delay);
       });
 
       setTimeout(() => setIsTropical(false), 600);
@@ -539,6 +747,7 @@ export const GameStage: React.FC<GameStageProps> = ({
     }
 
     const newCombo = comboRef.current + 1;
+    comboRef.current = newCombo;
     setCombo(newCombo);
 
     if (newCombo > 1) {
@@ -564,8 +773,10 @@ export const GameStage: React.FC<GameStageProps> = ({
       setTimeout(() => setIsShaking(false), 50);
     }
 
-    // Floating Score Text
-    addFloatingText(bottle.x, bottle.y, `+${points}`, bottle.type === BottleType.GOLDEN ? '#FFD700' : 'white');
+    // Floating Score Text (skip for chain pops to avoid duplicate tropical blast text)
+    if (!isChain) {
+      addFloatingText(bottle.x, bottle.y, `+${points}`, bottle.type === BottleType.GOLDEN ? '#FFD700' : 'white');
+    }
 
     // Combo Juice
     if (newCombo >= 3 && !isChain) {
@@ -602,9 +813,26 @@ export const GameStage: React.FC<GameStageProps> = ({
     const nextBottles = bottlesRef.current.map((b) => (b.id === id ? { ...b, isOpened: true } : b));
     bottlesRef.current = nextBottles;
     setBottles(nextBottles);
-  }, [onPop, stageWidth, stageHeight, addFloatingText]);
+  }, [onPop, stageWidth, stageHeight, addFloatingText, triggerTropicalVfx]);
+
+  const updateSplats = (time: number) => {
+    if (!tropicalSplatsRef.current.length) return;
+    const next: TropicalSplat[] = [];
+    tropicalSplatsRef.current.forEach((s) => {
+      const t = (time - s.startTime) / s.duration;
+      if (t >= 1) return;
+      const eased = Math.max(0, Math.min(1, t));
+      const x = s.startX + s.dx * eased;
+      const y = s.startY + s.dy * eased + 50 * eased * eased;
+      const radius = s.baseRadius * (1 - 0.5 * eased);
+      const fill = withAlpha(s.color, 1 - eased);
+      next.push({ ...s, x, y, radius, fill });
+    });
+    tropicalSplatsRef.current = next;
+  };
 
   const animate = (time: number) => {
+    updateSplats(time);
     // Wave-based spawning: spawn rate fluctuates over time
     // Every 30 seconds the cycle repeats
     const waveCycle = (time / 30000) * Math.PI * 2;
@@ -784,6 +1012,25 @@ export const GameStage: React.FC<GameStageProps> = ({
 
   return (
     <div className={`w-full h-full relative transition-all duration-75 ${flashPulse ? 'brightness-150' : ''} ${isTropical ? 'sepia-[0.3] saturate-200' : ''}`}>
+      <style>{`
+        @keyframes tropicalFlash {
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
+        @keyframes tropicalRing {
+          0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+          100% { transform: translate(-50%, -50%) scale(var(--ring-scale)); opacity: 0; }
+        }
+        @keyframes tropicalParticle {
+          0% { transform: translate(-50%, -50%) translate(0, 0) rotate(0deg); opacity: 1; }
+          60% { transform: translate(-50%, -50%) translate(calc(var(--dx) * 0.6), calc(var(--dy) * 0.6 + 18px)) rotate(240deg); opacity: 0.7; }
+          100% { transform: translate(-50%, -50%) translate(var(--dx), calc(var(--dy) + 50px)) rotate(400deg); opacity: 0; }
+        }
+        @keyframes tropicalScoreFloat {
+          0% { transform: translate(-50%, -50%) translateY(0); opacity: 1; }
+          100% { transform: translate(-50%, -50%) translateY(-45px); opacity: 0; }
+        }
+      `}</style>
       {/* Debug Menu Overlay */}
       {debugMode && (
         <div className="absolute top-20 left-4 z-[100] glass-panel p-4 rounded-xl text-xs font-mono space-y-2 border-sunset-orange/50">
@@ -812,6 +1059,72 @@ export const GameStage: React.FC<GameStageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Tropical Blast VFX: Overlay Flash (z-8) */}
+      {tropicalFlash && (
+        <div
+          className="absolute inset-0 pointer-events-none z-[8]"
+          style={{
+            background: `radial-gradient(circle at ${tropicalFlash.x}px ${tropicalFlash.y}px, rgba(242,143,22,0.45) 0%, rgba(232,84,10,0.2) 40%, transparent 70%)`,
+            animation: 'tropicalFlash 700ms ease-out forwards',
+          }}
+        />
+      )}
+
+      {/* Tropical Blast VFX: Rings, Particles, Score Text (z-12) */}
+      <div className="absolute inset-0 pointer-events-none z-[12]">
+        {tropicalRings.map((ring) => (
+          <div
+            key={ring.id}
+            style={{
+              position: 'absolute',
+              left: `${ring.x}px`,
+              top: `${ring.y}px`,
+              width: '16px',
+              height: '16px',
+              borderRadius: '9999px',
+              border: `${ring.border}px solid ${ring.color}`,
+              animation: `tropicalRing ${ring.duration}ms cubic-bezier(0.2, 0.8, 0.2, 1) ${ring.delay}ms forwards`,
+              ['--ring-scale' as any]: ring.scale,
+            }}
+          />
+        ))}
+
+        {tropicalParticles.map((particle) => (
+          <div
+            key={particle.id}
+            style={{
+              position: 'absolute',
+              left: `${particle.x}px`,
+              top: `${particle.y}px`,
+              fontSize: `${particle.size}px`,
+              animation: `tropicalParticle ${particle.duration}ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards`,
+              ['--dx' as any]: `${particle.dx}px`,
+              ['--dy' as any]: `${particle.dy}px`,
+            }}
+          >
+            {particle.emoji}
+          </div>
+        ))}
+
+        {tropicalTexts.map((text) => (
+          <div
+            key={text.id}
+            style={{
+              position: 'absolute',
+              left: `${text.x}px`,
+              top: `${text.y}px`,
+              color: text.color,
+              fontWeight: 700,
+              fontSize: `${text.size}px`,
+              animation: 'tropicalScoreFloat 750ms ease-out forwards',
+              pointerEvents: 'none',
+            }}
+          >
+            {text.text}
+          </div>
+        ))}
+      </div>
       <SummerDecor 
         hideShelf 
         onPop={backgroundReaction} 
@@ -896,6 +1209,18 @@ export const GameStage: React.FC<GameStageProps> = ({
               onPop={handlePop}
               speed={config.speed}
               combo={combo}
+            />
+          ))}
+        </Layer>
+        <Layer listening={false}>
+          {tropicalSplatsRef.current.map((s) => (
+            <Circle
+              key={s.id}
+              x={s.x}
+              y={s.y}
+              radius={s.radius}
+              fill={s.fill}
+              opacity={1}
             />
           ))}
         </Layer>

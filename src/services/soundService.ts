@@ -19,12 +19,27 @@ class SoundManager {
   private isInitialized: boolean = false;
   private constructor() {}
 
+  private resolvePopUrl() {
+    if (typeof Audio === 'undefined') return '/soda-pop-custom.wav';
+    try {
+      const test = new Audio();
+      const canWav = test.canPlayType('audio/wav') || test.canPlayType('audio/x-wav');
+      if (canWav && canWav !== '') {
+        return '/soda-pop-custom.wav';
+      }
+    } catch {
+      // Fall through to fallback URL
+    }
+    // Fallback MP3 for environments that can't decode WAV reliably.
+    return 'https://assets.mixkit.co/active_storage/sfx/2559/2559-preview.mp3';
+  }
+
   private initSounds() {
     if (this.isInitialized) return;
     
     try {
       this.soundUrls = {
-        pop: '/soda-pop-custom.wav',
+        pop: this.resolvePopUrl(),
         tap: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
         win: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
         miss: 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3',
@@ -93,6 +108,10 @@ class SoundManager {
       // Find an available sound in the pool
       const sound = pool.find(s => s.paused || s.ended) || pool[0];
       
+      if (sound.readyState === 0) {
+        // Ensure the element starts loading if it hasn't yet.
+        sound.load();
+      }
       sound.currentTime = 0;
       sound.volume = template.volume * this.baseSfxVolume;
       
