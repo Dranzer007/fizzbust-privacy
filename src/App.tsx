@@ -41,11 +41,28 @@ function AppContent() {
   const [totalPops, setTotalPops] = useState(0);
   const [hasRevived, setHasRevived] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
-  const [bottleCount, setBottleCount] = useState(0);
-  const [bottleLimit, setBottleLimit] = useState(0);
+  const [pressureProgress, setPressureProgress] = useState(0);
   const [previousState, setPreviousState] = useState<GameState | null>(null);
   const gameStateRef = React.useRef(gameState);
   const backgroundPausedRef = React.useRef(false);
+
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7496/ingest/3c2f7d6e-659b-406a-a71d-7d00a4f21512', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '95cb8d' },
+      body: JSON.stringify({
+        sessionId: '95cb8d',
+        runId: 'pre-fix',
+        hypothesisId: 'H3_AppModuleLoads',
+        location: 'src/App.tsx:AppContent',
+        message: 'AppContent function executed (module compiled)',
+        data: { gameState },
+        timestamp: Date.now()
+      }),
+    }).catch(() => {});
+  }, []);
+  // #endregion
 
   React.useEffect(() => {
     gameStateRef.current = gameState;
@@ -62,6 +79,7 @@ function AppContent() {
     setMissedCount(0);
     setCombo(0);
     setHasRevived(false);
+    setPressureProgress(0);
 
     // Check if tutorial has been seen
     const seenTutorial = localStorage.getItem('fizz_bust_tutorial_seen');
@@ -85,12 +103,12 @@ function AppContent() {
   React.useEffect(() => { missedCountRef.current = missedCount; }, [missedCount]);
 
   const handleGameOver = React.useCallback(async (finalScore: number) => {
-    const isHigh = await statsService.saveGame(finalScore, missedCountRef.current, gameMode, difficulty);
+    const isHigh = await statsService.saveGame(finalScore, missedCountRef.current, gameMode, difficulty, maxCombo);
     setIsNewHighScore(isHigh);
     adService.incrementGameCount();
     setScore(finalScore);
     setGameState(GameState.GAME_OVER);
-  }, [gameMode, difficulty]);
+  }, [gameMode, difficulty, maxCombo]);
 
   const handleMissed = React.useCallback(() => {
     setMissedCount(m => m + 1);
@@ -124,9 +142,8 @@ function AppContent() {
     setGameState(GameState.MENU);
   }, []);
 
-  const handleBottleCountUpdate = React.useCallback((count: number, limit: number) => {
-    setBottleCount(count);
-    setBottleLimit(limit);
+  const handlePressureUpdate = React.useCallback((progress: number) => {
+    setPressureProgress(progress);
   }, []);
 
   const handleLoadingComplete = React.useCallback(() => {
@@ -304,7 +321,7 @@ function AppContent() {
                 onLivesUpdate={setLives}
                 onMissed={handleMissed}
                 onPop={handlePop}
-                onBottleCountUpdate={handleBottleCountUpdate}
+                onPressureUpdate={handlePressureUpdate}
                 isPaused={gameState === GameState.PAUSED}
               />
               <HUD 
@@ -315,8 +332,7 @@ function AppContent() {
                 combo={combo}
                 onBack={handleReturnToMenu}
                 onPause={handlePause}
-                bottleCount={bottleCount}
-                bottleLimit={bottleLimit}
+                pressureProgress={pressureProgress}
               />
             </motion.div>
           )}
