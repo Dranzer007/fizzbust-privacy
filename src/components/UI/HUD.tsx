@@ -15,8 +15,7 @@ interface HUDProps {
   onBack: () => void;
   onPause?: () => void;
   targetColor?: string;
-  bottleCount?: number;
-  bottleLimit?: number;
+  pressureProgress?: number;
 }
 
 export const HUD: React.FC<HUDProps> = ({ 
@@ -28,9 +27,9 @@ export const HUD: React.FC<HUDProps> = ({
   onBack, 
   onPause,
   targetColor,
-  bottleCount = 0,
-  bottleLimit = 0,
+  pressureProgress = 0,
 }) => {
+  const maxLives = difficulty === 'HARD' ? 5 : 3;
   return (
     <div className="fixed inset-0 pointer-events-none z-50 select-none">
       {/* Top Bar */}
@@ -43,16 +42,6 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
             <div className="flex items-center gap-3 sm:gap-4">
               <p className="text-2xl sm:text-6xl font-display italic tracking-tighter text-black drop-shadow-sm">{score.toLocaleString()}</p>
-              {combo > 1 && (
-                <motion.div
-                  initial={{ scale: 0.5, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  key={combo}
-                  className="bg-sunset-orange px-1.5 sm:px-3 py-0.5 sm:py-1 rounded-lg shadow-lg"
-                >
-                  <span className="text-[10px] sm:text-xl font-display italic text-white">x{combo}</span>
-                </motion.div>
-              )}
             </div>
           </div>
         </Draggable>
@@ -61,7 +50,7 @@ export const HUD: React.FC<HUDProps> = ({
           <Draggable id="hud-lives" className="pointer-events-auto">
             <div className="flex flex-col items-end gap-1 sm:gap-2">
               <div className="flex gap-1 sm:gap-2">
-                {[...Array(5)].map((_, i) => (
+                {[...Array(maxLives)].map((_, i) => (
                   <div key={`life-indicator-${i}`} className="relative w-4 h-4 sm:w-10 sm:h-10 landscape:w-6 landscape:h-6">
                     <img 
                       src="/assets/life_heart.svg"
@@ -95,11 +84,22 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Bottom Progress Bar */}
       <div className="absolute bottom-0 left-0 w-full p-2 sm:p-8 landscape:p-4 flex flex-col items-center gap-1 sm:gap-2">
+        {combo > 1 && (
+          <motion.div
+            key={combo}
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="mb-1 sm:mb-2 px-2 sm:px-4 py-0.5 sm:py-1.5 rounded-full bg-sunset-orange/90 shadow-lg flex items-center gap-2"
+          >
+            <span className="text-[7px] sm:text-[10px] font-black uppercase tracking-[0.3em] text-white/80">Combo</span>
+            <span className="text-[10px] sm:text-xl font-display italic text-white">x{combo}</span>
+          </motion.div>
+        )}
         <div className="w-full max-w-[150px] sm:max-w-md h-0.5 sm:h-1 bg-black/5 rounded-full overflow-hidden">
           <motion.div 
             className="h-full bg-sunset-teal"
             initial={{ width: 0 }}
-            animate={{ width: `${(bottleCount / bottleLimit) * 100}%` }}
+            animate={{ width: `${Math.min(Math.max(pressureProgress, 0), 1) * 100}%` }}
           />
         </div>
         <p className="text-[5px] sm:text-[10px] font-black text-black/10 uppercase tracking-[0.3em] sm:tracking-[0.5em]">Pressure Threshold</p>
