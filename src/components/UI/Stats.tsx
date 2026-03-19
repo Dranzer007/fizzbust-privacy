@@ -85,15 +85,27 @@ export const Stats: React.FC<StatsProps> = ({ onBack }) => {
               </div>
               
               <div className="grid grid-cols-1 landscape:grid-cols-3 sm:grid-cols-3 gap-3 sm:gap-8">
-                {stats.highScores[mode] ? Object.entries(stats.highScores[mode]).map(([diff, score]) => (
-                  <div key={diff} className="bg-black/5 p-4 landscape:p-3 sm:p-8 rounded-xl sm:rounded-2xl flex justify-between items-center group hover:bg-black/10 transition-colors border border-black/5">
-                    <div className="flex flex-col">
-                      <span className="text-[8px] landscape:text-[7px] sm:text-[10px] font-black text-black/20 uppercase tracking-widest mb-0.5 group-hover:text-black/40">{diff}</span>
-                      <span className="text-[9px] landscape:text-[9px] font-mono text-black/60">Peak</span>
+                {stats.highScores[mode] ? Object.entries(stats.highScores[mode]).map(([diff, score]) => {
+                  const bestCombo = stats.maxCombos?.[mode]?.[diff as Difficulty] || 0;
+                  return (
+                    <div key={diff} className="bg-black/5 p-4 landscape:p-3 sm:p-8 rounded-xl sm:rounded-2xl flex justify-between items-center group hover:bg-black/10 transition-colors border border-black/5">
+                      <div className="flex flex-col">
+                        <span className="text-[8px] landscape:text-[7px] sm:text-[10px] font-black text-black/20 uppercase tracking-widest mb-0.5 group-hover:text-black/40">{diff}</span>
+                        <span className="text-[9px] landscape:text-[9px] font-mono text-black/60">Difficulty</span>
+                      </div>
+                      <div className="flex items-end gap-3 sm:gap-6">
+                        <div className="flex flex-col items-end">
+                          <span className="text-[7px] sm:text-[9px] font-mono text-black/40 uppercase">High Score</span>
+                          <span className="text-xl landscape:text-xl sm:text-4xl font-display italic tracking-tighter text-black">{score}</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-[7px] sm:text-[9px] font-mono text-black/40 uppercase">Best Combo</span>
+                          <span className="text-xl landscape:text-xl sm:text-4xl font-display italic tracking-tighter text-sunset-teal">x{bestCombo}</span>
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-xl landscape:text-xl sm:text-4xl font-display italic tracking-tighter text-black">{score}</span>
-                  </div>
-                )) : (
+                  );
+                }) : (
                   <div className="col-span-1 landscape:col-span-3 sm:col-span-3 bg-black/5 p-6 sm:p-12 rounded-xl text-center text-black/20 font-mono text-[8px] landscape:text-[8px] sm:text-[10px] uppercase tracking-widest border border-black/5">No data recorded</div>
                 )}
               </div>

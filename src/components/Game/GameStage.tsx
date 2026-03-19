@@ -81,7 +81,7 @@ interface GameStageProps {
   onLivesUpdate: (lives: number) => void;
   onMissed: () => void;
   onPop: () => void;
-  onBottleCountUpdate?: (count: number, limit: number) => void;
+  onPressureUpdate?: (progress: number) => void;
   isPaused?: boolean;
   targetColor?: string;
 }
@@ -96,7 +96,7 @@ export const GameStage: React.FC<GameStageProps> = ({
   onLivesUpdate,
   onMissed,
   onPop,
-  onBottleCountUpdate,
+  onPressureUpdate,
   isPaused: isPausedProp = false,
 }) => {
   const config = DIFFICULTY_CONFIG[difficulty];
@@ -125,7 +125,10 @@ export const GameStage: React.FC<GameStageProps> = ({
   const [tropicalRings, setTropicalRings] = useState<TropicalRing[]>([]);
   const [tropicalParticles, setTropicalParticles] = useState<TropicalParticle[]>([]);
   const [tropicalTexts, setTropicalTexts] = useState<TropicalScoreText[]>([]);
+  const [soakMode, setSoakMode] = useState(false);
+  const [pressurePulse, setPressurePulse] = useState(false);
   
+  const maxLives = difficulty === Difficulty.HARD ? 5 : 3;
   const bottlesRef = useRef<BottleData[]>([]);
   const thunderFreezeIdsRef = useRef<Set<string>>(new Set());
   const livesRef = useRef(initialLives);
@@ -136,6 +139,13 @@ export const GameStage: React.FC<GameStageProps> = ({
   const lastFrameTime = useRef<number>(0);
   const tropicalSplatsRef = useRef<TropicalSplat[]>([]);
   const vfxIdRef = useRef(0);
+  const soakModeRef = useRef(false);
+  const pressureLevelRef = useRef(0);
+  const pressureArmedRef = useRef(true);
+  const pressureSpeedModRef = useRef(1);
+  const lastSoakTimeRef = useRef(0);
+  const SOAK_TARGET = 10000;
+  const soakLogNextRef = useRef(1000);
   
   const requestRef = useRef<number | null>(null);
   const lastSpawnTime = useRef<number>(0);
@@ -147,15 +157,24 @@ export const GameStage: React.FC<GameStageProps> = ({
 
   // Sync refs with state
   useEffect(() => { 
-    // Only update bottle count if it actually changed to avoid unnecessary App re-renders
-    if (onBottleCountUpdate && bottles.length !== bottlesRef.current.length) {
-      onBottleCountUpdate(bottles.length, config.bottleLimit);
+    if (bottles.length !== bottlesRef.current.length) {
+      bottlesRef.current = bottles;
     }
-    bottlesRef.current = bottles;
-  }, [bottles.length, onBottleCountUpdate, config.bottleLimit]);
+  }, [bottles.length]);
   useEffect(() => { livesRef.current = lives; }, [lives]);
   useEffect(() => { scoreRef.current = score; }, [score]);
   useEffect(() => { comboRef.current = combo; }, [combo]);
+  useEffect(() => { soakModeRef.current = soakMode; }, [soakMode]);
+  useEffect(() => {
+    if (soakMode) {
+      soakLogNextRef.current = 1000;
+      if (import.meta.env.DEV) {
+        console.log(`[SOAK] Started (${difficulty}) target=${SOAK_TARGET}`);
+      }
+    } else {
+      soakLogNextRef.current = 1000;
+    }
+  }, [soakMode, difficulty]);
 
   useEffect(() => {
     if (!debugMode) return;
@@ -283,6 +302,45 @@ export const GameStage: React.FC<GameStageProps> = ({
       setFloatingTexts(prev => prev.filter(t => t.id !== id));
     }, 800);
   }, []);
+
+  const triggerPressureUp = useCallback(() => {
+    if (isPausedRef.current) return;
+    if (pressureLevelRef.current >= 3) return;
+
+    const nextLevel = Math.min(3, pressureLevelRef.current + 1);
+    pressureLevelRef.current = nextLevel;
+    pressureSpeedModRef.current = 1 + nextLevel * 0.1;
+
+    pressureArmedRef.current = false;
+    onPressureUpdate?.(0);
+
+    setPressurePulse(true);
+    setTimeout(() => setPressurePulse(false), 200);
+    addFloatingText(stageWidth / 2, stageHeight / 2 - 60, "PRESSURE UP!", "#F28F16", true);
+  }, [addFloatingText, stageWidth, stageHeight, onPressureUpdate]);
+
+  useEffect(() => {
+    const limit = Math.max(config.bottleLimit, 1);
+    const fill = Math.min(1, Math.max(0, bottles.length / limit));
+
+    if (pressureLevelRef.current >= 3) {
+      onPressureUpdate?.(fill);
+      return;
+    }
+
+    if (pressureArmedRef.current) {
+      onPressureUpdate?.(fill);
+      if (fill >= 1) {
+        triggerPressureUp();
+      }
+      return;
+    }
+
+    if (fill <= 0.6) {
+      pressureArmedRef.current = true;
+      onPressureUpdate?.(fill);
+    }
+  }, [bottles.length, config.bottleLimit, onPressureUpdate, triggerPressureUp]);
 
   const nextVfxId = () => `vfx-${vfxIdRef.current++}`;
 
@@ -600,7 +658,12 @@ export const GameStage: React.FC<GameStageProps> = ({
     }
   }, [difficulty, stageWidth, stageHeight, config]);
 
-  const handlePop = useCallback((id: string, isPerfect: boolean = false, isChain: boolean = false) => {
+  const handlePop = useCallback((
+    id: string,
+    isPerfect: boolean = false,
+    isChain: boolean = false,
+    origin?: { x: number; y: number }
+  ) => {
     if (isPausedRef.current) return;
     const bottle = bottlesRef.current.find(b => b.id === id);
     if (!bottle || bottle.isOpened) return;
@@ -632,8 +695,8 @@ export const GameStage: React.FC<GameStageProps> = ({
     if (!isChain && bottle.type === BottleType.TROPICAL) {
       points = 15;
       setIsTropical(true);
-      const originX = bottle.x;
-      const originY = bottle.y + (bottle.bobOffset || 0);
+      const originX = origin?.x ?? bottle.x;
+      const originY = origin?.y ?? (bottle.y + (bottle.bobOffset || 0));
       const blastScale =
         difficulty === Difficulty.HARD ? 0.75 :
         difficulty === Difficulty.MEDIUM ? 0.85 :
@@ -720,7 +783,7 @@ export const GameStage: React.FC<GameStageProps> = ({
         const next = prev + 1;
         if (next >= 5) {
           setLives(l => {
-            const newLives = Math.min(l + 1, 5);
+            const newLives = Math.min(l + 1, maxLives);
             livesRef.current = newLives;
             return newLives;
           });
@@ -746,6 +809,7 @@ export const GameStage: React.FC<GameStageProps> = ({
       });
     }
 
+    const basePoints = points;
     const newCombo = comboRef.current + 1;
     comboRef.current = newCombo;
     setCombo(newCombo);
@@ -754,7 +818,16 @@ export const GameStage: React.FC<GameStageProps> = ({
       addFloatingText(bottle.x + 30, bottle.y - 20, `x${newCombo}`, "#00F5D4", true);
     }
 
-    const nextScore = scoreRef.current + points;
+    let comboBonus = 0;
+    if (newCombo === 5) comboBonus = 5;
+    if (newCombo === 10) comboBonus = 10;
+    if (newCombo === 15) comboBonus = 20;
+
+    if (comboBonus > 0) {
+      addFloatingText(bottle.x, bottle.y - 45, `COMBO BONUS +${comboBonus}`, "#F2C12E", true);
+    }
+
+    const nextScore = scoreRef.current + basePoints + comboBonus;
     setScore(nextScore);
     scoreRef.current = nextScore;
     onScoreUpdate(nextScore);
@@ -775,7 +848,7 @@ export const GameStage: React.FC<GameStageProps> = ({
 
     // Floating Score Text (skip for chain pops to avoid duplicate tropical blast text)
     if (!isChain) {
-      addFloatingText(bottle.x, bottle.y, `+${points}`, bottle.type === BottleType.GOLDEN ? '#FFD700' : 'white');
+      addFloatingText(bottle.x, bottle.y, `+${basePoints}`, bottle.type === BottleType.GOLDEN ? '#FFD700' : 'white');
     }
 
     // Combo Juice
@@ -833,6 +906,40 @@ export const GameStage: React.FC<GameStageProps> = ({
 
   const animate = (time: number) => {
     updateSplats(time);
+
+    if (soakModeRef.current && scoreRef.current >= SOAK_TARGET) {
+      soakModeRef.current = false;
+      setSoakMode(false);
+      if (import.meta.env.DEV) {
+        console.log(`[SOAK] Complete (${difficulty}) score=${scoreRef.current}`);
+      }
+    }
+
+    if (soakModeRef.current && scoreRef.current >= soakLogNextRef.current) {
+      if (import.meta.env.DEV) {
+        console.log(`[SOAK] ${difficulty} score=${scoreRef.current} bottles=${bottlesRef.current.length} lives=${livesRef.current}`);
+      }
+      soakLogNextRef.current += 1000;
+    }
+
+    if (soakModeRef.current) {
+      const elapsed = time - lastSoakTimeRef.current;
+      if (elapsed > 40) {
+        lastSoakTimeRef.current = time;
+
+        const capacity = Math.max(config.bottleLimit - bottlesRef.current.length, 0);
+        const spawnCount = Math.min(3, capacity);
+        for (let i = 0; i < spawnCount; i += 1) {
+          spawnBottle();
+        }
+
+        const candidates = bottlesRef.current.filter(b => !b.isOpened && !b.isBursting);
+        const popCount = Math.min(6, candidates.length);
+        for (let i = 0; i < popCount; i += 1) {
+          handlePop(candidates[i].id, false, false);
+        }
+      }
+    }
     // Wave-based spawning: spawn rate fluctuates over time
     // Every 30 seconds the cycle repeats
     const waveCycle = (time / 30000) * Math.PI * 2;
@@ -864,7 +971,7 @@ export const GameStage: React.FC<GameStageProps> = ({
     let missedIds: string[] = [];
     
     // Move bottles and check off-screen
-    const speedMod = isFrosty ? 0.4 : 1;
+    const speedMod = (isFrosty ? 0.4 : 1) * pressureSpeedModRef.current;
     const nextBottles: BottleData[] = [];
     
     for (const b of bottlesRef.current) {
@@ -988,6 +1095,9 @@ export const GameStage: React.FC<GameStageProps> = ({
         case 'g':
           setGodMode(prev => !prev);
           break;
+        case 'o':
+          setSoakMode(prev => !prev);
+          break;
         case 's':
           setScore(prev => prev + 100);
           break;
@@ -1036,6 +1146,7 @@ export const GameStage: React.FC<GameStageProps> = ({
         <div className="absolute top-20 left-4 z-[100] glass-panel p-4 rounded-xl text-xs font-mono space-y-2 border-sunset-orange/50">
           <div className="text-sunset-orange font-bold border-b border-white/10 pb-1 mb-2">DEBUG CHEATS (Active)</div>
           <div className="flex justify-between gap-4"><span>[G] God Mode:</span> <span className={godMode ? 'text-green-400' : 'text-red-400'}>{godMode ? 'ON' : 'OFF'}</span></div>
+          <div className="flex justify-between gap-4"><span>[O] Soak 10k:</span> <span className={soakMode ? 'text-green-400' : 'text-red-400'}>{soakMode ? 'ON' : 'OFF'}</span></div>
           <div>[S] Add +100 Score</div>
           <div>[K] Kill All Bottles</div>
           <div>[L] Reset Lives</div>
@@ -1056,6 +1167,7 @@ export const GameStage: React.FC<GameStageProps> = ({
             <div>Spawn Rate: {debugStats.spawnRate} ms</div>
             <div>Bottles On Screen: {bottles.length}</div>
             <div>Frozen (Thunder): {thunderFreezeIdsRef.current.size}</div>
+            <div>Soak: {soakMode ? `${Math.min(scoreRef.current, SOAK_TARGET)} / ${SOAK_TARGET}` : 'OFF'}</div>
           </div>
         </div>
       )}
@@ -1152,6 +1264,11 @@ export const GameStage: React.FC<GameStageProps> = ({
       {/* Thunder Flash Overlay */}
       {thunderPulse && (
         <div className="absolute inset-0 bg-blue-400/20 z-50 pointer-events-none animate-pulse" />
+      )}
+
+      {/* Pressure Flash Overlay */}
+      {pressurePulse && (
+        <div className="absolute inset-0 bg-sunset-orange/20 z-40 pointer-events-none animate-pulse" />
       )}
       
       <Stage 

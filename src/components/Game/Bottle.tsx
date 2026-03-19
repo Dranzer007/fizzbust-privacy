@@ -8,7 +8,7 @@ import { hapticService } from '../../services/hapticService';
 
 interface BottleProps {
   data: BottleData;
-  onPop: (id: string, isPerfect?: boolean) => void;
+  onPop: (id: string, isPerfect?: boolean, isChain?: boolean, origin?: { x: number; y: number }) => void;
   speed: number;
   combo: number;
 }
@@ -552,9 +552,9 @@ export const Bottle: React.FC<BottleProps> = React.memo(({ data, onPop, speed, c
     setIsPopped(data.isOpened);
   }, [data.isOpened]);
 
-  const handleInteraction = (isPerfect: boolean = false) => {
+  const handleInteraction = (isPerfect: boolean = false, origin?: { x: number; y: number }) => {
     if (isPopped || data.isBursting) return;
-    onPop(data.id, isPerfect);
+    onPop(data.id, isPerfect, false, origin);
     setIsPopped(true);
     soundManager.play('pop');
     hapticService.medium();
@@ -582,7 +582,7 @@ export const Bottle: React.FC<BottleProps> = React.memo(({ data, onPop, speed, c
       if (localPos) {
         const isCapTap = localPos.y < 30;
         const isPerfect = isCapTap || (distance > 50);
-        handleInteraction(isPerfect);
+        handleInteraction(isPerfect, pos);
       }
     }
     startPos.current = null;
@@ -593,7 +593,8 @@ export const Bottle: React.FC<BottleProps> = React.memo(({ data, onPop, speed, c
     if (!startPos.current) {
       const localPos = groupRef.current?.getRelativePointerPosition();
       const isPerfect = localPos ? localPos.y < 30 : false;
-      handleInteraction(isPerfect);
+      const stagePos = e.target.getStage()?.getPointerPosition();
+      handleInteraction(isPerfect, stagePos || undefined);
     }
   };
 

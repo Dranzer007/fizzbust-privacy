@@ -70,6 +70,9 @@ export interface GameStats {
   highScores: {
     [GameMode.ENDLESS]: Record<Difficulty, number>;
   };
+  maxCombos: {
+    [GameMode.ENDLESS]: Record<Difficulty, number>;
+  };
 }
 
 const STORAGE_KEY = 'fizz_bust_stats';
@@ -79,6 +82,13 @@ const defaultStats: GameStats = {
   totalMissed: 0,
   gamesPlayed: 0,
   highScores: {
+    [GameMode.ENDLESS]: {
+      [Difficulty.EASY]: 0,
+      [Difficulty.MEDIUM]: 0,
+      [Difficulty.HARD]: 0,
+    },
+  },
+  maxCombos: {
     [GameMode.ENDLESS]: {
       [Difficulty.EASY]: 0,
       [Difficulty.MEDIUM]: 0,
@@ -99,7 +109,17 @@ export const statsService = {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return defaultStats;
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      if (!parsed.maxCombos) {
+        parsed.maxCombos = {
+          [GameMode.ENDLESS]: {
+            [Difficulty.EASY]: 0,
+            [Difficulty.MEDIUM]: 0,
+            [Difficulty.HARD]: 0,
+          },
+        };
+      }
+      return parsed;
     } catch (e) {
       console.warn('Failed to load stats from localStorage:', e);
       return defaultStats;
@@ -148,7 +168,7 @@ export const statsService = {
     }
   },
 
-  async saveGame(score: number, missed: number, mode: GameMode, difficulty: Difficulty): Promise<boolean> {
+  async saveGame(score: number, missed: number, mode: GameMode, difficulty: Difficulty, maxCombo: number): Promise<boolean> {
     const stats = this.getStats();
     
     stats.totalPops += score;
@@ -192,6 +212,18 @@ export const statsService = {
           console.warn('Failed to sync score to global leaderboard:', e);
         }
       }
+    }
+
+    if (!stats.maxCombos[mode]) {
+      stats.maxCombos[mode] = {
+        [Difficulty.EASY]: 0,
+        [Difficulty.MEDIUM]: 0,
+        [Difficulty.HARD]: 0,
+      };
+    }
+    const currentBestCombo = stats.maxCombos[mode]?.[difficulty] || 0;
+    if (maxCombo > currentBestCombo) {
+      stats.maxCombos[mode][difficulty] = maxCombo;
     }
     
     try {
