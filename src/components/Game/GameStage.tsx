@@ -785,6 +785,9 @@ export const GameStage: React.FC<GameStageProps> = ({
           setLives(l => {
             const newLives = Math.min(l + 1, maxLives);
             livesRef.current = newLives;
+            if (newLives !== l) {
+              onLivesUpdate(newLives);
+            }
             return newLives;
           });
           soundManager.play('win');
