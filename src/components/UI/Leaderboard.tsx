@@ -4,8 +4,6 @@ import { statsService, LeaderboardEntry } from '../../services/statsService';
 import { Difficulty } from '../../types';
 import { SummerDecor } from './SummerTheme';
 import { soundManager } from '../../services/soundService';
-import { auth, signInWithGoogle } from '../../firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
 
 interface LeaderboardProps {
   onBack: () => void;
@@ -15,14 +13,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ onBack }) => {
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>(Difficulty.MEDIUM);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [user, setUser] = useState<User | null>(auth.currentUser);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-    });
-    return () => unsubscribe();
-  }, []);
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
@@ -33,20 +23,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ onBack }) => {
     };
 
     fetchLeaderboard();
-  }, [selectedDifficulty, user]);
+  }, [selectedDifficulty]);
 
   const handleDifficultyChange = (d: Difficulty) => {
     soundManager.play('tap');
     setSelectedDifficulty(d);
-  };
-
-  const handleLogin = async () => {
-    try {
-      soundManager.play('tap');
-      await signInWithGoogle();
-    } catch (e) {
-      console.error('Login failed:', e);
-    }
   };
 
   return (
@@ -70,7 +51,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ onBack }) => {
           </button>
           
           <div className="text-center landscape:text-right">
-            <p className="text-[8px] landscape:text-[7px] sm:text-[10px] font-black text-black/20 uppercase tracking-[0.4em] sm:tracking-[0.8em] mb-1 sm:mb-2">Global Network</p>
+            <p className="text-[8px] landscape:text-[7px] sm:text-[10px] font-black text-black/20 uppercase tracking-[0.4em] sm:tracking-[0.8em] mb-1 sm:mb-2">Local Archive</p>
             <h2 className="text-2xl landscape:text-2xl sm:text-5xl font-display italic tracking-tighter text-black uppercase">
               Hall of <span className="text-sunset-teal">Fame</span>
             </h2>
@@ -78,22 +59,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ onBack }) => {
         </div>
 
         <div className="flex-1 flex flex-col gap-6 landscape:gap-6 sm:gap-12 overflow-visible sm:overflow-hidden">
-          {/* Auth Section */}
-          {!user && (
-            <div className="bg-sunset-teal/5 border border-sunset-teal/20 p-4 sm:p-6 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-center sm:text-left">
-                <p className="text-[10px] font-black text-sunset-teal uppercase tracking-widest mb-1">Global Sync Disabled</p>
-                <p className="text-[8px] font-mono text-black/40 uppercase tracking-widest">Connect to sync your high scores globally.</p>
-              </div>
-              <button
-                onClick={handleLogin}
-                className="bg-sunset-teal text-white px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform"
-              >
-                Connect Account
-              </button>
-            </div>
-          )}
-
           {/* Difficulty Selector */}
           <div className="flex gap-6 landscape:gap-8 sm:gap-12 pb-4 landscape:pb-4 sm:pb-8 overflow-x-auto no-scrollbar">
             {([Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD] as Difficulty[]).map((d) => (
@@ -168,7 +133,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ onBack }) => {
 
         <div className="mt-8 sm:mt-12 flex justify-between items-center opacity-20">
           <p className="text-[7px] sm:text-[8px] font-mono text-black uppercase tracking-[0.4em] font-black">
-            Stream: Sync
+            Stream: Local
           </p>
           <p className="text-[7px] sm:text-[8px] font-mono text-black uppercase tracking-[0.4em] font-black">
             Node: AP-01
