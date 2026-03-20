@@ -9,3 +9,7 @@ google-services.json
 .env.local
 .env*
 !.env.example
+.blackbox/
+.cursor/logs/
+.cursor/cache/
+TODO.md
