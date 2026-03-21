@@ -19,6 +19,31 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return;
+            }
+
+            if (id.includes('react-konva') || id.includes('konva') || id.includes('canvas-confetti')) {
+              return 'game-engine';
+            }
+
+            if (id.includes('motion') || id.includes('framer-motion')) {
+              return 'motion';
+            }
+
+            if (id.includes('@capacitor')) {
+              return 'capacitor';
+            }
+
+            return 'vendor';
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.

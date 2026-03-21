@@ -4,7 +4,6 @@ import App from './App.tsx';
 import './index.css';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 
-console.log('Main.tsx is executing...');
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

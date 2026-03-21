@@ -13,16 +13,40 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ onBack }) => {
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>(Difficulty.MEDIUM);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isCancelled = false;
+
     const fetchLeaderboard = async () => {
       setIsLoading(true);
-      const data = await statsService.getLeaderboard(selectedDifficulty);
-      setLeaderboard(data);
-      setIsLoading(false);
+      setLoadError(null);
+
+      try {
+        const data = await statsService.getLeaderboard(selectedDifficulty);
+
+        if (!isCancelled) {
+          setLeaderboard(data);
+        }
+      } catch (error) {
+        console.error('Failed to load leaderboard:', error);
+
+        if (!isCancelled) {
+          setLeaderboard([]);
+          setLoadError('Archive unavailable');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      }
     };
 
-    fetchLeaderboard();
+    void fetchLeaderboard();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [selectedDifficulty]);
 
   const handleDifficultyChange = (d: Difficulty) => {
@@ -83,6 +107,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({ onBack }) => {
               <div className="flex flex-col items-center justify-center h-full gap-2">
                 <div className="w-4 h-4 sm:w-8 sm:h-8 border-2 border-sunset-teal border-t-transparent rounded-full animate-spin" />
                 <p className="text-[6px] landscape:text-[7px] sm:text-[10px] font-mono text-black/20 uppercase tracking-[0.4em]">Synchronizing Network...</p>
+              </div>
+            ) : loadError ? (
+              <div className="flex flex-col items-center justify-center h-full gap-2">
+                <p className="text-[6px] landscape:text-[7px] sm:text-[10px] font-mono text-sunset-orange uppercase tracking-[0.4em]">{loadError}</p>
+                <p className="text-[6px] landscape:text-[7px] sm:text-[9px] font-mono text-black/20 uppercase tracking-[0.3em]">Try another difficulty or restart the app</p>
               </div>
             ) : leaderboard.length > 0 ? (
               leaderboard.map((entry, index) => (

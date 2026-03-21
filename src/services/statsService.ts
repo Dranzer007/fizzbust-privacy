@@ -16,24 +16,53 @@ const STORAGE_KEY = 'fizz_bust_stats';
 const LEADERBOARD_KEY_PREFIX = 'fizz_bust_leaderboard_';
 const PLAYER_NAME_KEY = 'fizz_bust_player_name';
 
-const defaultStats: GameStats = {
+const createDefaultDifficultyStats = (): Record<Difficulty, number> => ({
+  [Difficulty.EASY]: 0,
+  [Difficulty.MEDIUM]: 0,
+  [Difficulty.HARD]: 0,
+});
+
+const createDefaultStats = (): GameStats => ({
   totalPops: 0,
   totalMissed: 0,
   gamesPlayed: 0,
   highScores: {
-    [GameMode.ENDLESS]: {
-      [Difficulty.EASY]: 0,
-      [Difficulty.MEDIUM]: 0,
-      [Difficulty.HARD]: 0,
-    },
+    [GameMode.ENDLESS]: createDefaultDifficultyStats(),
   },
   maxCombos: {
-    [GameMode.ENDLESS]: {
-      [Difficulty.EASY]: 0,
-      [Difficulty.MEDIUM]: 0,
-      [Difficulty.HARD]: 0,
-    },
+    [GameMode.ENDLESS]: createDefaultDifficultyStats(),
   },
+});
+
+const isValidMetric = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+const normalizeDifficultyStats = (value: unknown): Record<Difficulty, number> => {
+  const source = value && typeof value === 'object' ? value as Partial<Record<Difficulty, number>> : {};
+  const defaults = createDefaultDifficultyStats();
+
+  return {
+    [Difficulty.EASY]: isValidMetric(source[Difficulty.EASY]) ? source[Difficulty.EASY] : defaults[Difficulty.EASY],
+    [Difficulty.MEDIUM]: isValidMetric(source[Difficulty.MEDIUM]) ? source[Difficulty.MEDIUM] : defaults[Difficulty.MEDIUM],
+    [Difficulty.HARD]: isValidMetric(source[Difficulty.HARD]) ? source[Difficulty.HARD] : defaults[Difficulty.HARD],
+  };
+};
+
+const normalizeStats = (value: unknown): GameStats => {
+  const source = value && typeof value === 'object' ? value as Partial<GameStats> : {};
+  const highScores = source.highScores && typeof source.highScores === 'object' ? source.highScores : {};
+  const maxCombos = source.maxCombos && typeof source.maxCombos === 'object' ? source.maxCombos : {};
+
+  return {
+    totalPops: isValidMetric(source.totalPops) ? source.totalPops : 0,
+    totalMissed: isValidMetric(source.totalMissed) ? source.totalMissed : 0,
+    gamesPlayed: isValidMetric(source.gamesPlayed) ? source.gamesPlayed : 0,
+    highScores: {
+      [GameMode.ENDLESS]: normalizeDifficultyStats(highScores[GameMode.ENDLESS]),
+    },
+    maxCombos: {
+      [GameMode.ENDLESS]: normalizeDifficultyStats(maxCombos[GameMode.ENDLESS]),
+    },
+  };
 };
 
 export interface LeaderboardEntry {
@@ -103,21 +132,11 @@ export const statsService = {
   getStats(): GameStats {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return defaultStats;
-      const parsed = JSON.parse(stored);
-      if (!parsed.maxCombos) {
-        parsed.maxCombos = {
-          [GameMode.ENDLESS]: {
-            [Difficulty.EASY]: 0,
-            [Difficulty.MEDIUM]: 0,
-            [Difficulty.HARD]: 0,
-          },
-        };
-      }
-      return parsed;
+      if (!stored) return createDefaultStats();
+      return normalizeStats(JSON.parse(stored));
     } catch (e) {
       console.warn('Failed to load stats from localStorage:', e);
-      return defaultStats;
+      return createDefaultStats();
     }
   },
 
@@ -206,7 +225,7 @@ export const statsService = {
 
   resetStats() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultStats));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(createDefaultStats()));
     } catch (e) {
       console.warn('Failed to reset stats in localStorage:', e);
     }

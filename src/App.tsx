@@ -1,25 +1,56 @@
-import React, { useState } from 'react';
-import { GameState, Difficulty, DIFFICULTY_CONFIG, GameMode } from './types';
-import { Menu, LevelSelect } from './components/UI/Menu';
+import React, { Suspense, lazy, startTransition, useState } from 'react';
+import { GameState, Difficulty, GameMode } from './types';
 import { HUD, GameOver } from './components/UI/HUD';
-import { Stats } from './components/UI/Stats';
-import { Leaderboard } from './components/UI/Leaderboard';
-import { Settings } from './components/UI/Settings';
 import { LoadingScreen } from './components/UI/LoadingScreen';
-import { GameStage } from './components/Game/GameStage';
 import { motion, AnimatePresence } from 'motion/react';
 import { ErrorBoundary } from './components/UI/ErrorBoundary';
-import { TutorialOverlay } from './components/UI/TutorialOverlay';
-import { RotationOverlay } from './components/UI/RotationOverlay';
 
 import { soundManager } from './services/soundService';
-import { hapticService } from './services/hapticService';
 import { statsService } from './services/statsService';
 import { adService } from './services/adService';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 
 import { LayoutProvider } from './context/LayoutContext';
+
+const Menu = lazy(() => import('./components/UI/Menu').then((module) => ({ default: module.Menu })));
+const LevelSelect = lazy(() => import('./components/UI/Menu').then((module) => ({ default: module.LevelSelect })));
+const Stats = lazy(() => import('./components/UI/Stats').then((module) => ({ default: module.Stats })));
+const Leaderboard = lazy(() => import('./components/UI/Leaderboard').then((module) => ({ default: module.Leaderboard })));
+const Settings = lazy(() => import('./components/UI/Settings').then((module) => ({ default: module.Settings })));
+const GameStage = lazy(() => import('./components/Game/GameStage').then((module) => ({ default: module.GameStage })));
+const TutorialOverlay = lazy(() => import('./components/UI/TutorialOverlay').then((module) => ({ default: module.TutorialOverlay })));
+const RotationOverlay = lazy(() => import('./components/UI/RotationOverlay').then((module) => ({ default: module.RotationOverlay })));
+
+const TUTORIAL_STORAGE_KEY = 'fizz_bust_tutorial_seen';
+let tutorialSeenFallback = false;
+
+const hasSeenTutorial = (): boolean => {
+  if (tutorialSeenFallback) {
+    return true;
+  }
+
+  try {
+    return localStorage.getItem(TUTORIAL_STORAGE_KEY) === 'true';
+  } catch (error) {
+    console.warn('Failed to read tutorial state:', error);
+    return false;
+  }
+};
+
+const markTutorialSeen = (): void => {
+  tutorialSeenFallback = true;
+
+  try {
+    localStorage.setItem(TUTORIAL_STORAGE_KEY, 'true');
+  } catch (error) {
+    console.warn('Failed to persist tutorial state:', error);
+  }
+};
+
+const ScreenFallback = ({ fullScreen = false }: { fullScreen?: boolean }) => (
+  <div className={fullScreen ? 'fixed inset-0 bg-white' : 'w-full h-full min-h-[160px] bg-white'} />
+);
 
 export default function App() {
   return (
@@ -44,10 +75,13 @@ function AppContent() {
   const [pressureProgress, setPressureProgress] = useState(0);
   const [previousState, setPreviousState] = useState<GameState | null>(null);
   const gameStateRef = React.useRef(gameState);
-  const backgroundPausedRef = React.useRef(false);
 
   // #region agent log
   React.useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
     fetch('http://127.0.0.1:7496/ingest/3c2f7d6e-659b-406a-a71d-7d00a4f21512', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '95cb8d' },
@@ -63,6 +97,12 @@ function AppContent() {
     }).catch(() => {});
   }, []);
   // #endregion
+
+  React.useEffect(() => {
+    void adService.initialize().catch((error) => {
+      console.log('AdMob initialization failed:', error);
+    });
+  }, []);
 
   React.useEffect(() => {
     gameStateRef.current = gameState;
@@ -81,19 +121,21 @@ function AppContent() {
     setHasRevived(false);
     setPressureProgress(0);
 
-    // Check if tutorial has been seen
-    const seenTutorial = localStorage.getItem('fizz_bust_tutorial_seen');
-    if (!seenTutorial) {
+    if (!hasSeenTutorial()) {
       setShowTutorial(true);
     } else {
-      setGameState(GameState.PLAYING);
+      startTransition(() => {
+        setGameState(GameState.PLAYING);
+      });
     }
   }, []);
 
   const handleTutorialComplete = React.useCallback(() => {
-    localStorage.setItem('fizz_bust_tutorial_seen', 'true');
+    markTutorialSeen();
     setShowTutorial(false);
-    setGameState(GameState.PLAYING);
+    startTransition(() => {
+      setGameState(GameState.PLAYING);
+    });
   }, []);
 
   const [isNewHighScore, setIsNewHighScore] = React.useState(false);
@@ -103,11 +145,20 @@ function AppContent() {
   React.useEffect(() => { missedCountRef.current = missedCount; }, [missedCount]);
 
   const handleGameOver = React.useCallback(async (finalScore: number) => {
-    const isHigh = await statsService.saveGame(finalScore, missedCountRef.current, gameMode, difficulty, maxCombo);
+    let isHigh = false;
+
+    try {
+      isHigh = await statsService.saveGame(finalScore, missedCountRef.current, gameMode, difficulty, maxCombo);
+    } catch (error) {
+      console.error('Failed to save game stats:', error);
+    }
+
     setIsNewHighScore(isHigh);
     adService.incrementGameCount();
     setScore(finalScore);
-    setGameState(GameState.GAME_OVER);
+    startTransition(() => {
+      setGameState(GameState.GAME_OVER);
+    });
   }, [gameMode, difficulty, maxCombo]);
 
   const handleMissed = React.useCallback(() => {
@@ -125,21 +176,36 @@ function AppContent() {
   }, []);
 
   const handleRevive = React.useCallback(async () => {
-    const success = await adService.showRewardedAd();
-    if (success) {
-      setLives(1);
-      setHasRevived(true);
-      setGameState(GameState.PLAYING);
-      soundManager.play('tap');
+    try {
+      const success = await adService.showRewardedAd();
+
+      if (success) {
+        setLives(1);
+        setHasRevived(true);
+        startTransition(() => {
+          setGameState(GameState.PLAYING);
+        });
+        soundManager.play('tap');
+      }
+    } catch (error) {
+      console.error('Rewarded revive failed:', error);
     }
   }, []);
 
   const handleReturnToMenu = React.useCallback(async () => {
     soundManager.stopMusic();
-    if (adService.shouldShowInterstitial()) {
-      await adService.showInterstitial();
+
+    try {
+      if (adService.shouldShowInterstitial()) {
+        await adService.showInterstitial();
+      }
+    } catch (error) {
+      console.error('Interstitial display failed:', error);
     }
-    setGameState(GameState.MENU);
+
+    startTransition(() => {
+      setGameState(GameState.MENU);
+    });
   }, []);
 
   const handlePressureUpdate = React.useCallback((progress: number) => {
@@ -147,7 +213,9 @@ function AppContent() {
   }, []);
 
   const handleLoadingComplete = React.useCallback(() => {
-    setGameState(GameState.MENU);
+    startTransition(() => {
+      setGameState(GameState.MENU);
+    });
     soundManager.startMusic();
   }, []);
 
@@ -155,8 +223,9 @@ function AppContent() {
     const pauseForBackground = () => {
       soundManager.stopMusic();
       if (gameStateRef.current === GameState.PLAYING) {
-        setGameState(GameState.PAUSED);
-        backgroundPausedRef.current = true;
+        startTransition(() => {
+          setGameState(GameState.PAUSED);
+        });
       }
     };
 
@@ -204,30 +273,40 @@ function AppContent() {
 
   const handlePause = React.useCallback(() => {
     if (gameState === GameState.PLAYING) {
-      setGameState(GameState.PAUSED);
+      startTransition(() => {
+        setGameState(GameState.PAUSED);
+      });
       soundManager.stopMusic();
     }
   }, [gameState]);
 
   const handleOpenSettings = React.useCallback(() => {
     setPreviousState(gameState);
-    setGameState(GameState.SETTINGS);
+    startTransition(() => {
+      setGameState(GameState.SETTINGS);
+    });
     soundManager.play('tap');
   }, [gameState]);
 
   const handleCloseSettings = React.useCallback(() => {
     if (previousState) {
-      setGameState(previousState);
+      startTransition(() => {
+        setGameState(previousState);
+      });
       setPreviousState(null);
     } else {
-      setGameState(GameState.MENU);
+      startTransition(() => {
+        setGameState(GameState.MENU);
+      });
     }
     soundManager.play('tap');
   }, [previousState]);
 
   const handleResume = React.useCallback(() => {
     if (gameState === GameState.PAUSED) {
-      setGameState(GameState.PLAYING);
+      startTransition(() => {
+        setGameState(GameState.PLAYING);
+      });
       soundManager.startMusic();
     }
   }, [gameState]);
@@ -235,7 +314,8 @@ function AppContent() {
   return (
     <div className="relative w-full h-screen overflow-hidden bg-white font-sans">
       <ErrorBoundary>
-        <AnimatePresence mode="wait">
+        <Suspense fallback={<ScreenFallback fullScreen={gameState !== GameState.LOADING} />}>
+          <AnimatePresence mode="wait">
           {gameState === GameState.LOADING && (
             <LoadingScreen key="loading" onComplete={handleLoadingComplete} />
           )}
@@ -247,12 +327,18 @@ function AppContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              <Menu 
+              <Menu
                 onPlay={(mode) => {
                   setGameMode(mode);
-                  setGameState(GameState.LEVEL_SELECT);
-                }} 
-                onStateChange={setGameState} 
+                  startTransition(() => {
+                    setGameState(GameState.LEVEL_SELECT);
+                  });
+                }}
+                onStateChange={(state) => {
+                  startTransition(() => {
+                    setGameState(state);
+                  });
+                }}
               />
             </motion.div>
           )}
@@ -264,7 +350,11 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
             >
-              <Stats onBack={() => setGameState(GameState.MENU)} />
+              <Stats onBack={() => {
+                startTransition(() => {
+                  setGameState(GameState.MENU);
+                });
+              }} />
             </motion.div>
           )}
 
@@ -275,7 +365,11 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
             >
-              <Leaderboard onBack={() => setGameState(GameState.MENU)} />
+              <Leaderboard onBack={() => {
+                startTransition(() => {
+                  setGameState(GameState.MENU);
+                });
+              }} />
             </motion.div>
           )}
 
@@ -299,7 +393,11 @@ function AppContent() {
             >
               <LevelSelect 
                 onSelect={(d) => handleStartGame(d, gameMode)} 
-                onBack={() => setGameState(GameState.MENU)} 
+                onBack={() => {
+                  startTransition(() => {
+                    setGameState(GameState.MENU);
+                  });
+                }} 
               />
             </motion.div>
           )}
@@ -417,22 +515,29 @@ function AppContent() {
               }}
               canRevive={!hasRevived}
               isNewHighScore={isNewHighScore}
-              onRestart={() => setGameState(GameState.LEVEL_SELECT)} 
+              onRestart={() => {
+                startTransition(() => {
+                  setGameState(GameState.LEVEL_SELECT);
+                });
+              }} 
               onMenu={handleReturnToMenu}
               onRevive={handleRevive}
               difficulty={difficulty}
             />
           )}
-        </AnimatePresence>
+          </AnimatePresence>
+        </Suspense>
       </ErrorBoundary>
 
-      <AnimatePresence>
-        {showTutorial && (
-          <TutorialOverlay onComplete={handleTutorialComplete} />
-        )}
-      </AnimatePresence>
+      <Suspense fallback={null}>
+        <AnimatePresence>
+          {showTutorial && (
+            <TutorialOverlay onComplete={handleTutorialComplete} />
+          )}
+        </AnimatePresence>
 
-      <RotationOverlay />
+        <RotationOverlay />
+      </Suspense>
     </div>
   );
 }
