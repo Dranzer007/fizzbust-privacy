@@ -1,61 +1,128 @@
-// Simple service to manage ad logic and frequency
-class AdService {
-  private gameCount: number = 0;
-  private readonly INTERSTITIAL_FREQUENCY: number = 3; // Show every 3 games
-  private isSdkInitialized: boolean = false;
+import { AdMob, RewardAdPluginEvents, type AdOptions, type RewardAdOptions } from '@capacitor-community/admob';
+import type { PluginListenerHandle } from '@capacitor/core';
 
-  constructor() {
-    // Simulate SDK initialization
-    setTimeout(() => {
-      this.isSdkInitialized = true;
-      console.log('📱 Mobile Ads SDK Initialized');
-    }, 1000);
-  }
+const IS_DEV = import.meta.env.DEV;
 
-  incrementGameCount() {
-    this.gameCount++;
-  }
+const INTERSTITIAL_ID = IS_DEV
+  ? 'ca-app-pub-3940256099942544/1033173712'
+  : import.meta.env.VITE_ADMOB_INTERSTITIAL_ID;
+
+const REWARDED_ID = IS_DEV
+  ? 'ca-app-pub-3940256099942544/5224354917'
+  : import.meta.env.VITE_ADMOB_REWARDED_ID;
+
+const INTERSTITIAL_FREQUENCY = 3;
+
+let gameCount = 0;
+let isInitialized = false;
+
+const removeListeners = async (handles: PluginListenerHandle[]) => {
+  await Promise.all(handles.map((handle) => handle.remove()));
+};
+
+export const adService = {
+  async initialize(): Promise<void> {
+    if (isInitialized) {
+      return;
+    }
+
+    if (!INTERSTITIAL_ID || !REWARDED_ID) {
+      console.warn('AdMob ad unit IDs are missing. Ads will be disabled.');
+      return;
+    }
+
+    await AdMob.initialize({
+      initializeForTesting: import.meta.env.DEV,
+      testingDevices: import.meta.env.DEV ? ['EMULATOR'] : [],
+    });
+
+    isInitialized = true;
+  },
+
+  incrementGameCount(): void {
+    gameCount += 1;
+  },
 
   shouldShowInterstitial(): boolean {
-    return this.gameCount % this.INTERSTITIAL_FREQUENCY === 0 && this.gameCount > 0;
-  }
+    return gameCount > 0 && gameCount % INTERSTITIAL_FREQUENCY === 0;
+  },
 
-  // Mock function for showing an interstitial
-  async showInterstitial(): Promise<boolean> {
-    if (!this.isSdkInitialized) return true;
-    
-    console.log('🎬 Requesting Interstitial Ad...');
-    // In a real app, this would call:
-    // AdMob.showInterstitial(AD_UNIT_ID)
-    
-    return new Promise((resolve) => {
-      // Simulate ad loading and showing
-      setTimeout(() => {
-        console.log('✅ Interstitial Ad Dismissed');
-        resolve(true);
-      }, 1500);
-    });
-  }
+  async showInterstitial(): Promise<void> {
+    if (!INTERSTITIAL_ID) {
+      console.warn('Missing AdMob interstitial ID.');
+      return;
+    }
 
-  // Mock function for rewarded ads
-  async showRewardedAd(): Promise<boolean> {
-    if (!this.isSdkInitialized) {
-      alert("Ads system not ready. Please try again in a moment.");
+    try {
+      await this.initialize();
+
+      const options: AdOptions = { adId: INTERSTITIAL_ID };
+      await AdMob.prepareInterstitial(options);
+      await AdMob.showInterstitial();
+    } catch (error) {
+      // removed for production
+    }
+  },
+
+  async showRewarded(): Promise<boolean> {
+    if (!REWARDED_ID) {
+      console.warn('Missing AdMob rewarded ID.');
       return false;
     }
 
-    console.log('💎 Requesting Rewarded Ad...');
-    // In a real app, this would call:
-    // AdMob.showRewardedAd(AD_UNIT_ID)
-    
-    return new Promise((resolve) => {
-      // Simulate ad loading and showing
-      setTimeout(() => {
-        console.log('✅ Rewarded Ad Completed');
-        resolve(true);
-      }, 2000);
-    });
-  }
-}
+    const options: RewardAdOptions = { adId: REWARDED_ID };
+    const listeners = await Promise.all([
+      AdMob.addListener(RewardAdPluginEvents.Rewarded, async () => {
+        await settle(true);
+      }),
+      AdMob.addListener(RewardAdPluginEvents.Dismissed, async () => {
+        await settle(false);
+      }),
+      AdMob.addListener(RewardAdPluginEvents.FailedToShow, async () => {
+        await settle(false);
+      }),
+      AdMob.addListener(RewardAdPluginEvents.FailedToLoad, async () => {
+        await settle(false);
+      }),
+    ]);
 
-export const adService = new AdService();
+    let settled = false;
+
+    const settle = async (result: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      await removeListeners(listeners);
+      resolveReward(result);
+    };
+
+    let resolveReward: (value: boolean) => void = () => {};
+
+    const rewardPromise = new Promise<boolean>((resolve) => {
+      resolveReward = resolve;
+    });
+
+    try {
+      await this.initialize();
+      await AdMob.prepareRewardVideoAd(options);
+      await AdMob.showRewardVideoAd();
+    } catch (error) {
+      // removed for production
+      await settle(false);
+    }
+
+    return rewardPromise;
+  },
+
+  async showRewardedAd(): Promise<boolean> {
+    return this.showRewarded();
+  },
+
+  async showInterstitialEvery3Games(currentGameCount: number): Promise<void> {
+    if (currentGameCount % INTERSTITIAL_FREQUENCY === 0) {
+      await this.showInterstitial();
+    }
+  }
+};

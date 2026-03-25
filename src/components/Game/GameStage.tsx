@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Bottle } from './Bottle';
 import { BottleData, Difficulty, DIFFICULTY_CONFIG, GameMode, BottleType, MovementType } from '../../types';
 import confetti from 'canvas-confetti';
+import { Capacitor } from '@capacitor/core';
 import { soundManager } from '../../services/soundService';
 import { hapticService } from '../../services/hapticService';
 import { SummerDecor } from '../UI/SummerTheme';
@@ -86,6 +87,21 @@ interface GameStageProps {
   targetColor?: string;
 }
 
+let confettiDisabled = false;
+
+const fireConfetti = (options: Parameters<typeof confetti>[0]) => {
+  if (confettiDisabled || Capacitor.isNativePlatform()) {
+    return;
+  }
+
+  try {
+    void confetti(options);
+  } catch (error) {
+    confettiDisabled = true;
+    console.warn('Confetti disabled after runtime failure:', error);
+  }
+};
+
 export const GameStage: React.FC<GameStageProps> = ({
   difficulty,
   mode,
@@ -146,6 +162,7 @@ export const GameStage: React.FC<GameStageProps> = ({
   const lastSoakTimeRef = useRef(0);
   const SOAK_TARGET = 10000;
   const soakLogNextRef = useRef(1000);
+  const targetFrameMs = 1000 / 60;
   
   const requestRef = useRef<number | null>(null);
   const lastSpawnTime = useRef<number>(0);
@@ -168,9 +185,6 @@ export const GameStage: React.FC<GameStageProps> = ({
   useEffect(() => {
     if (soakMode) {
       soakLogNextRef.current = 1000;
-      if (import.meta.env.DEV) {
-        console.log(`[SOAK] Started (${difficulty}) target=${SOAK_TARGET}`);
-      }
     } else {
       soakLogNextRef.current = 1000;
     }
@@ -217,9 +231,6 @@ export const GameStage: React.FC<GameStageProps> = ({
         // Pausing
         setIsPaused(true);
         isPausedRef.current = true;
-        if (requestRef.current) {
-          cancelAnimationFrame(requestRef.current);
-        }
       }
     }
   }, [isPausedProp]);
@@ -804,7 +815,7 @@ export const GameStage: React.FC<GameStageProps> = ({
       points *= 2;
       addFloatingText(bottle.x, bottle.y - 60, "PERFECT!", "#FFD700", true);
       // Add extra sparkle for perfect pops
-      confetti({
+      fireConfetti({
         particleCount: 80,
         spread: 70,
         origin: { x: bottle.x / stageWidth, y: bottle.y / stageHeight },
@@ -868,7 +879,7 @@ export const GameStage: React.FC<GameStageProps> = ({
 
     // Milestone Sparkle
     if (Math.floor(nextScore / 50) > Math.floor(scoreRef.current / 50)) {
-      confetti({
+      fireConfetti({
         particleCount: 150,
         spread: 100,
         origin: { y: 0.5 },
@@ -878,7 +889,7 @@ export const GameStage: React.FC<GameStageProps> = ({
     }
 
     if (!isChain) {
-      confetti({
+      fireConfetti({
         particleCount: (bottle.type === BottleType.GOLDEN || isPerfect) ? 100 : 30 + (newCombo * 2),
         spread: 60 + (newCombo),
         origin: { y: 0.6 },
@@ -908,20 +919,19 @@ export const GameStage: React.FC<GameStageProps> = ({
   };
 
   const animate = (time: number) => {
+    const rawDeltaMs = lastFrameTime.current > 0 ? time - lastFrameTime.current : targetFrameMs;
+    lastFrameTime.current = time;
+    const frameScale = Math.min(Math.max(rawDeltaMs / targetFrameMs, 0.5), 2.5);
+
     updateSplats(time);
 
     if (soakModeRef.current && scoreRef.current >= SOAK_TARGET) {
       soakModeRef.current = false;
       setSoakMode(false);
-      if (import.meta.env.DEV) {
-        console.log(`[SOAK] Complete (${difficulty}) score=${scoreRef.current}`);
-      }
     }
 
     if (soakModeRef.current && scoreRef.current >= soakLogNextRef.current) {
-      if (import.meta.env.DEV) {
-        console.log(`[SOAK] ${difficulty} score=${scoreRef.current} bottles=${bottlesRef.current.length} lives=${livesRef.current}`);
-      }
+      // removed for production
       soakLogNextRef.current += 1000;
     }
 
@@ -992,11 +1002,11 @@ export const GameStage: React.FC<GameStageProps> = ({
         vy *= ratio;
       }
 
-      const nextX = isFrozen ? b.x : (b.x + vx * speedMod);
-      const nextY = isFrozen ? b.y : (b.y + vy * speedMod);
+      const nextX = isFrozen ? b.x : (b.x + vx * speedMod * frameScale);
+      const nextY = isFrozen ? b.y : (b.y + vy * speedMod * frameScale);
       let nextVy = vy;
-      const nextRotation = (b.rotation || 0) + (b.angularVelocity || 0) * speedMod;
-      const nextAngularVelocity = (b.angularVelocity || 0) * friction;
+      const nextRotation = (b.rotation || 0) + (b.angularVelocity || 0) * speedMod * frameScale;
+      const nextAngularVelocity = (b.angularVelocity || 0) * Math.pow(friction, frameScale);
       
       // Add subtle bobbing for bottles that aren't falling or thrown
       let bobOffset = 0;
@@ -1009,7 +1019,7 @@ export const GameStage: React.FC<GameStageProps> = ({
       }
 
       if (b.movementType === MovementType.RANDOM_THROW) {
-        nextVy += gravity * speedMod;
+        nextVy += gravity * speedMod * frameScale;
       }
 
       const isOffScreen = 
@@ -1079,6 +1089,7 @@ export const GameStage: React.FC<GameStageProps> = ({
   };
 
   useEffect(() => {
+    lastFrameTime.current = 0;
     requestRef.current = requestAnimationFrame(loop);
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);

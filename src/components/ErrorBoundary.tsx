@@ -47,21 +47,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      let errorMessage = "Something went wrong.";
-      let isFirestoreError = false;
-
-      try {
-        if (this.state.error?.message) {
-          const parsed = JSON.parse(this.state.error.message);
-          if (parsed.error && parsed.operationType) {
-            isFirestoreError = true;
-            errorMessage = `Database Error: ${parsed.operationType} failed on ${parsed.path || 'unknown path'}.`;
-          }
-        }
-      } catch (e) {
-        // Not a JSON error message
-        errorMessage = this.state.error?.message || errorMessage;
-      }
+      const errorMessage = "Something went wrong. Please restart the game.";
 
       return (
         <div className="fixed inset-0 flex items-center justify-center bg-white p-8 z-[9999]">
@@ -75,11 +61,6 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="text-xs font-mono text-black/60 uppercase tracking-widest leading-relaxed">
               {errorMessage}
             </p>
-            {isFirestoreError && (
-              <p className="text-[8px] font-mono text-black/20 uppercase tracking-widest">
-                Please check your network connection or contact support.
-              </p>
-            )}
             <button
               onClick={() => window.location.reload()}
               className="mt-4 px-8 py-3 bg-black text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform"

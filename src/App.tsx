@@ -1,9 +1,16 @@
-import React, { Suspense, lazy, startTransition, useState } from 'react';
+import React, { useState } from 'react';
 import { GameState, Difficulty, GameMode } from './types';
+import { Menu, LevelSelect } from './components/UI/Menu';
 import { HUD, GameOver } from './components/UI/HUD';
+import { Stats } from './components/UI/Stats';
+import { Leaderboard } from './components/UI/Leaderboard';
+import { Settings } from './components/UI/Settings';
 import { LoadingScreen } from './components/UI/LoadingScreen';
+import { GameStage } from './components/Game/GameStage';
 import { motion, AnimatePresence } from 'motion/react';
 import { ErrorBoundary } from './components/UI/ErrorBoundary';
+import { TutorialOverlay } from './components/UI/TutorialOverlay';
+import { RotationOverlay } from './components/UI/RotationOverlay';
 
 import { soundManager } from './services/soundService';
 import { statsService } from './services/statsService';
@@ -12,15 +19,6 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 
 import { LayoutProvider } from './context/LayoutContext';
-
-const Menu = lazy(() => import('./components/UI/Menu').then((module) => ({ default: module.Menu })));
-const LevelSelect = lazy(() => import('./components/UI/Menu').then((module) => ({ default: module.LevelSelect })));
-const Stats = lazy(() => import('./components/UI/Stats').then((module) => ({ default: module.Stats })));
-const Leaderboard = lazy(() => import('./components/UI/Leaderboard').then((module) => ({ default: module.Leaderboard })));
-const Settings = lazy(() => import('./components/UI/Settings').then((module) => ({ default: module.Settings })));
-const GameStage = lazy(() => import('./components/Game/GameStage').then((module) => ({ default: module.GameStage })));
-const TutorialOverlay = lazy(() => import('./components/UI/TutorialOverlay').then((module) => ({ default: module.TutorialOverlay })));
-const RotationOverlay = lazy(() => import('./components/UI/RotationOverlay').then((module) => ({ default: module.RotationOverlay })));
 
 const TUTORIAL_STORAGE_KEY = 'fizz_bust_tutorial_seen';
 let tutorialSeenFallback = false;
@@ -47,10 +45,6 @@ const markTutorialSeen = (): void => {
     console.warn('Failed to persist tutorial state:', error);
   }
 };
-
-const ScreenFallback = ({ fullScreen = false }: { fullScreen?: boolean }) => (
-  <div className={fullScreen ? 'fixed inset-0 bg-white' : 'w-full h-full min-h-[160px] bg-white'} />
-);
 
 export default function App() {
   return (
@@ -100,7 +94,7 @@ function AppContent() {
 
   React.useEffect(() => {
     void adService.initialize().catch((error) => {
-      console.log('AdMob initialization failed:', error);
+      // removed for production
     });
   }, []);
 
@@ -124,18 +118,14 @@ function AppContent() {
     if (!hasSeenTutorial()) {
       setShowTutorial(true);
     } else {
-      startTransition(() => {
-        setGameState(GameState.PLAYING);
-      });
+      setGameState(GameState.PLAYING);
     }
   }, []);
 
   const handleTutorialComplete = React.useCallback(() => {
     markTutorialSeen();
     setShowTutorial(false);
-    startTransition(() => {
-      setGameState(GameState.PLAYING);
-    });
+    setGameState(GameState.PLAYING);
   }, []);
 
   const [isNewHighScore, setIsNewHighScore] = React.useState(false);
@@ -156,9 +146,7 @@ function AppContent() {
     setIsNewHighScore(isHigh);
     adService.incrementGameCount();
     setScore(finalScore);
-    startTransition(() => {
-      setGameState(GameState.GAME_OVER);
-    });
+    setGameState(GameState.GAME_OVER);
   }, [gameMode, difficulty, maxCombo]);
 
   const handleMissed = React.useCallback(() => {
@@ -182,9 +170,7 @@ function AppContent() {
       if (success) {
         setLives(1);
         setHasRevived(true);
-        startTransition(() => {
-          setGameState(GameState.PLAYING);
-        });
+        setGameState(GameState.PLAYING);
         soundManager.play('tap');
       }
     } catch (error) {
@@ -203,9 +189,7 @@ function AppContent() {
       console.error('Interstitial display failed:', error);
     }
 
-    startTransition(() => {
-      setGameState(GameState.MENU);
-    });
+    setGameState(GameState.MENU);
   }, []);
 
   const handlePressureUpdate = React.useCallback((progress: number) => {
@@ -213,9 +197,7 @@ function AppContent() {
   }, []);
 
   const handleLoadingComplete = React.useCallback(() => {
-    startTransition(() => {
-      setGameState(GameState.MENU);
-    });
+    setGameState(GameState.MENU);
     soundManager.startMusic();
   }, []);
 
@@ -223,9 +205,7 @@ function AppContent() {
     const pauseForBackground = () => {
       soundManager.stopMusic();
       if (gameStateRef.current === GameState.PLAYING) {
-        startTransition(() => {
-          setGameState(GameState.PAUSED);
-        });
+        setGameState(GameState.PAUSED);
       }
     };
 
@@ -273,40 +253,30 @@ function AppContent() {
 
   const handlePause = React.useCallback(() => {
     if (gameState === GameState.PLAYING) {
-      startTransition(() => {
-        setGameState(GameState.PAUSED);
-      });
+      setGameState(GameState.PAUSED);
       soundManager.stopMusic();
     }
   }, [gameState]);
 
   const handleOpenSettings = React.useCallback(() => {
     setPreviousState(gameState);
-    startTransition(() => {
-      setGameState(GameState.SETTINGS);
-    });
+    setGameState(GameState.SETTINGS);
     soundManager.play('tap');
   }, [gameState]);
 
   const handleCloseSettings = React.useCallback(() => {
     if (previousState) {
-      startTransition(() => {
-        setGameState(previousState);
-      });
+      setGameState(previousState);
       setPreviousState(null);
     } else {
-      startTransition(() => {
-        setGameState(GameState.MENU);
-      });
+      setGameState(GameState.MENU);
     }
     soundManager.play('tap');
   }, [previousState]);
 
   const handleResume = React.useCallback(() => {
     if (gameState === GameState.PAUSED) {
-      startTransition(() => {
-        setGameState(GameState.PLAYING);
-      });
+      setGameState(GameState.PLAYING);
       soundManager.startMusic();
     }
   }, [gameState]);
@@ -314,8 +284,7 @@ function AppContent() {
   return (
     <div className="relative w-full h-screen overflow-hidden bg-white font-sans">
       <ErrorBoundary>
-        <Suspense fallback={<ScreenFallback fullScreen={gameState !== GameState.LOADING} />}>
-          <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait">
           {gameState === GameState.LOADING && (
             <LoadingScreen key="loading" onComplete={handleLoadingComplete} />
           )}
@@ -330,15 +299,9 @@ function AppContent() {
               <Menu
                 onPlay={(mode) => {
                   setGameMode(mode);
-                  startTransition(() => {
-                    setGameState(GameState.LEVEL_SELECT);
-                  });
+                  setGameState(GameState.LEVEL_SELECT);
                 }}
-                onStateChange={(state) => {
-                  startTransition(() => {
-                    setGameState(state);
-                  });
-                }}
+                onStateChange={setGameState}
               />
             </motion.div>
           )}
@@ -350,11 +313,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
             >
-              <Stats onBack={() => {
-                startTransition(() => {
-                  setGameState(GameState.MENU);
-                });
-              }} />
+              <Stats onBack={() => setGameState(GameState.MENU)} />
             </motion.div>
           )}
 
@@ -365,11 +324,7 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
             >
-              <Leaderboard onBack={() => {
-                startTransition(() => {
-                  setGameState(GameState.MENU);
-                });
-              }} />
+              <Leaderboard onBack={() => setGameState(GameState.MENU)} />
             </motion.div>
           )}
 
@@ -393,11 +348,7 @@ function AppContent() {
             >
               <LevelSelect 
                 onSelect={(d) => handleStartGame(d, gameMode)} 
-                onBack={() => {
-                  startTransition(() => {
-                    setGameState(GameState.MENU);
-                  });
-                }} 
+                onBack={() => setGameState(GameState.MENU)} 
               />
             </motion.div>
           )}
@@ -515,29 +466,22 @@ function AppContent() {
               }}
               canRevive={!hasRevived}
               isNewHighScore={isNewHighScore}
-              onRestart={() => {
-                startTransition(() => {
-                  setGameState(GameState.LEVEL_SELECT);
-                });
-              }} 
+              onRestart={() => setGameState(GameState.LEVEL_SELECT)} 
               onMenu={handleReturnToMenu}
               onRevive={handleRevive}
               difficulty={difficulty}
             />
           )}
-          </AnimatePresence>
-        </Suspense>
+        </AnimatePresence>
       </ErrorBoundary>
 
-      <Suspense fallback={null}>
-        <AnimatePresence>
-          {showTutorial && (
-            <TutorialOverlay onComplete={handleTutorialComplete} />
-          )}
-        </AnimatePresence>
+      <AnimatePresence>
+        {showTutorial && (
+          <TutorialOverlay onComplete={handleTutorialComplete} />
+        )}
+      </AnimatePresence>
 
-        <RotationOverlay />
-      </Suspense>
+      <RotationOverlay />
     </div>
   );
 }

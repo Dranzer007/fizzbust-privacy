@@ -24,7 +24,7 @@ class SoundManager {
     try {
       const test = new Audio();
       const canWav = test.canPlayType('audio/wav') || test.canPlayType('audio/x-wav');
-      if (canWav && canWav !== '') {
+      if (canWav) {
         return '/soda-pop-custom.wav';
       }
     } catch {

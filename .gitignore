@@ -9,6 +9,9 @@ google-services.json
 .env.local
 .env*
 !.env.example
+*.keystore
+*.jks
+keystore.properties
 .blackbox/
 .cursor/logs/
 .cursor/cache/
