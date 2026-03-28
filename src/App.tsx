@@ -46,6 +46,38 @@ const markTutorialSeen = (): void => {
   }
 };
 
+interface InfoDialogProps {
+  title: string;
+  message: string;
+  onClose: () => void;
+}
+
+const InfoDialog: React.FC<InfoDialogProps> = ({ title, message, onClose }) => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 z-[250] bg-black/30 backdrop-blur-sm flex items-center justify-center p-4"
+  >
+    <motion.div
+      initial={{ opacity: 0, y: 20, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 12, scale: 0.98 }}
+      className="w-full max-w-sm rounded-3xl bg-white shadow-2xl border border-black/5 p-5 sm:p-6"
+    >
+      <p className="text-[9px] font-black text-black/25 uppercase tracking-[0.35em] mb-2">Network Notice</p>
+      <h3 className="text-2xl font-display italic uppercase tracking-tight text-black mb-3">{title}</h3>
+      <p className="text-sm leading-relaxed text-black/60 mb-5">{message}</p>
+      <button
+        onClick={onClose}
+        className="w-full py-3 rounded-2xl bg-black text-white font-black uppercase tracking-[0.2em] text-xs hover:scale-[1.01] active:scale-[0.99] transition-transform"
+      >
+        Close
+      </button>
+    </motion.div>
+  </motion.div>
+);
+
 export default function App() {
   return (
     <LayoutProvider>
@@ -68,7 +100,14 @@ function AppContent() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [pressureProgress, setPressureProgress] = useState(0);
   const [previousState, setPreviousState] = useState<GameState | null>(null);
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+  const [sessionAllowsRewardRevive, setSessionAllowsRewardRevive] = useState(true);
+  const [showOfflineRewardsNotice, setShowOfflineRewardsNotice] = useState(false);
+  const [showReviveOfflineDialog, setShowReviveOfflineDialog] = useState(false);
+  const [isReviving, setIsReviving] = useState(false);
+  const [reviveCountdownToken, setReviveCountdownToken] = useState(0);
   const gameStateRef = React.useRef(gameState);
+  const offlineNoticeShownRef = React.useRef(false);
 
   // #region agent log
   React.useEffect(() => {
@@ -99,6 +138,28 @@ function AppContent() {
   }, []);
 
   React.useEffect(() => {
+    const updateOnlineStatus = () => {
+      setIsOnline(typeof navigator === 'undefined' ? true : navigator.onLine);
+    };
+
+    updateOnlineStatus();
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (gameState === GameState.MENU && !isOnline && !offlineNoticeShownRef.current) {
+      setShowOfflineRewardsNotice(true);
+      offlineNoticeShownRef.current = true;
+    }
+  }, [gameState, isOnline]);
+
+  React.useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
 
@@ -114,13 +175,18 @@ function AppContent() {
     setCombo(0);
     setHasRevived(false);
     setPressureProgress(0);
+    setReviveCountdownToken(0);
+    setIsReviving(false);
+    setShowReviveOfflineDialog(false);
+    setShowOfflineRewardsNotice(false);
+    setSessionAllowsRewardRevive(isOnline);
 
     if (!hasSeenTutorial()) {
       setShowTutorial(true);
     } else {
       setGameState(GameState.PLAYING);
     }
-  }, []);
+  }, [isOnline]);
 
   const handleTutorialComplete = React.useCallback(() => {
     markTutorialSeen();
@@ -164,19 +230,33 @@ function AppContent() {
   }, []);
 
   const handleRevive = React.useCallback(async () => {
+    if (isReviving) {
+      return;
+    }
+
+    if (!sessionAllowsRewardRevive || !isOnline) {
+      setShowReviveOfflineDialog(true);
+      return;
+    }
+
+    setIsReviving(true);
+
     try {
       const success = await adService.showRewardedAd();
 
       if (success) {
         setLives(1);
         setHasRevived(true);
+        setReviveCountdownToken(token => token + 1);
         setGameState(GameState.PLAYING);
         soundManager.play('tap');
       }
     } catch (error) {
       console.error('Rewarded revive failed:', error);
+    } finally {
+      setIsReviving(false);
     }
-  }, []);
+  }, [isOnline, isReviving, sessionAllowsRewardRevive]);
 
   const handleReturnToMenu = React.useCallback(async () => {
     soundManager.stopMusic();
@@ -190,6 +270,8 @@ function AppContent() {
     }
 
     setGameState(GameState.MENU);
+    setReviveCountdownToken(0);
+    setIsReviving(false);
   }, []);
 
   const handlePressureUpdate = React.useCallback((progress: number) => {
@@ -372,6 +454,7 @@ function AppContent() {
                 onPop={handlePop}
                 onPressureUpdate={handlePressureUpdate}
                 isPaused={gameState === GameState.PAUSED}
+                startCountdownToken={reviveCountdownToken}
               />
               <HUD 
                 score={score} 
@@ -464,11 +547,15 @@ function AppContent() {
                 maxCombo: maxCombo,
                 missed: missedCount
               }}
-              canRevive={!hasRevived}
+              showReviveOption={!hasRevived && sessionAllowsRewardRevive}
+              reviveEnabled={isOnline && !isReviving}
+              isReviving={isReviving}
               isNewHighScore={isNewHighScore}
               onRestart={() => setGameState(GameState.LEVEL_SELECT)} 
               onMenu={handleReturnToMenu}
               onRevive={handleRevive}
+              onReviveUnavailable={() => setShowReviveOfflineDialog(true)}
+              connectionStatus={isOnline ? 'ONLINE' : 'OFFLINE'}
               difficulty={difficulty}
             />
           )}
@@ -478,6 +565,26 @@ function AppContent() {
       <AnimatePresence>
         {showTutorial && (
           <TutorialOverlay onComplete={handleTutorialComplete} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showOfflineRewardsNotice && (
+          <InfoDialog
+            title="Rewards Offline"
+            message="Turn on data for rewards."
+            onClose={() => setShowOfflineRewardsNotice(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showReviveOfflineDialog && (
+          <InfoDialog
+            title="Connection Required"
+            message="Connect internet to earn reward and continue protocol."
+            onClose={() => setShowReviveOfflineDialog(false)}
+          />
         )}
       </AnimatePresence>
 

@@ -70,23 +70,17 @@ export const adService = {
       return false;
     }
 
-    const options: RewardAdOptions = { adId: REWARDED_ID };
-    const listeners = await Promise.all([
-      AdMob.addListener(RewardAdPluginEvents.Rewarded, async () => {
-        await settle(true);
-      }),
-      AdMob.addListener(RewardAdPluginEvents.Dismissed, async () => {
-        await settle(false);
-      }),
-      AdMob.addListener(RewardAdPluginEvents.FailedToShow, async () => {
-        await settle(false);
-      }),
-      AdMob.addListener(RewardAdPluginEvents.FailedToLoad, async () => {
-        await settle(false);
-      }),
-    ]);
+    await this.initialize();
 
+    const options: RewardAdOptions = { adId: REWARDED_ID };
+    let rewardEarned = false;
     let settled = false;
+    let listeners: PluginListenerHandle[] = [];
+    let resolveReward: (value: boolean) => void = () => {};
+
+    const rewardPromise = new Promise<boolean>((resolve) => {
+      resolveReward = resolve;
+    });
 
     const settle = async (result: boolean) => {
       if (settled) {
@@ -98,16 +92,25 @@ export const adService = {
       resolveReward(result);
     };
 
-    let resolveReward: (value: boolean) => void = () => {};
-
-    const rewardPromise = new Promise<boolean>((resolve) => {
-      resolveReward = resolve;
-    });
+    listeners = await Promise.all([
+      AdMob.addListener(RewardAdPluginEvents.Rewarded, async () => {
+        rewardEarned = true;
+      }),
+      AdMob.addListener(RewardAdPluginEvents.Dismissed, async () => {
+        await settle(rewardEarned);
+      }),
+      AdMob.addListener(RewardAdPluginEvents.FailedToShow, async () => {
+        await settle(false);
+      }),
+      AdMob.addListener(RewardAdPluginEvents.FailedToLoad, async () => {
+        await settle(false);
+      }),
+    ]);
 
     try {
-      await this.initialize();
       await AdMob.prepareRewardVideoAd(options);
-      await AdMob.showRewardVideoAd();
+      const rewardItem = await AdMob.showRewardVideoAd();
+      rewardEarned = Boolean(rewardItem);
     } catch (error) {
       // removed for production
       await settle(false);

@@ -84,6 +84,7 @@ interface GameStageProps {
   onPop: () => void;
   onPressureUpdate?: (progress: number) => void;
   isPaused?: boolean;
+  startCountdownToken?: number;
   targetColor?: string;
 }
 
@@ -114,6 +115,7 @@ export const GameStage: React.FC<GameStageProps> = ({
   onPop,
   onPressureUpdate,
   isPaused: isPausedProp = false,
+  startCountdownToken = 0,
 }) => {
   const config = DIFFICULTY_CONFIG[difficulty];
   const [bottles, setBottles] = useState<BottleData[]>([]);
@@ -131,9 +133,10 @@ export const GameStage: React.FC<GameStageProps> = ({
   const [lightningBolts, setLightningBolts] = useState<{ id: string, x1: number, y1: number, x2: number, y2: number }[]>([]);
   const [debugMode, setDebugMode] = useState(false);
   const [godMode, setGodMode] = useState(false);
-  const [isPaused, setIsPaused] = useState(isPausedProp);
-  const [countdown, setCountdown] = useState(0);
-  const [isStarting, setIsStarting] = useState(false);
+  const shouldStartFrozen = isPausedProp || startCountdownToken > 0;
+  const [isPaused, setIsPaused] = useState(shouldStartFrozen);
+  const [countdown, setCountdown] = useState(startCountdownToken > 0 ? 3 : 0);
+  const [isStarting, setIsStarting] = useState(startCountdownToken > 0);
   
   const [isSwapping, setIsSwapping] = useState(false);
   const [debugStats, setDebugStats] = useState({ spawns: 0, pops: 0, misses: 0, spawnRate: config.spawnRate });
@@ -150,8 +153,8 @@ export const GameStage: React.FC<GameStageProps> = ({
   const livesRef = useRef(initialLives);
   const scoreRef = useRef(initialScore);
   const comboRef = useRef(0);
-  const isPausedRef = useRef(isPausedProp);
-  const isStartingRef = useRef(false);
+  const isPausedRef = useRef(shouldStartFrozen);
+  const isStartingRef = useRef(startCountdownToken > 0);
   const lastFrameTime = useRef<number>(0);
   const tropicalSplatsRef = useRef<TropicalSplat[]>([]);
   const vfxIdRef = useRef(0);
@@ -171,6 +174,41 @@ export const GameStage: React.FC<GameStageProps> = ({
   const popCountRef = useRef<number>(0);
   const missedCountRef = useRef<number>(0);
   const currentSpawnRateRef = useRef<number>(config.spawnRate);
+  const countdownTimerRef = useRef<number | null>(null);
+
+  const clearCountdownTimer = useCallback(() => {
+    if (countdownTimerRef.current !== null) {
+      window.clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+  }, []);
+
+  const beginCountdown = useCallback(() => {
+    clearCountdownTimer();
+    setIsStarting(true);
+    isStartingRef.current = true;
+    setIsPaused(true);
+    isPausedRef.current = true;
+    setCountdown(3);
+
+    let count = 3;
+    countdownTimerRef.current = window.setInterval(() => {
+      count -= 1;
+      if (count > 0) {
+        setCountdown(count);
+        soundManager.play('tap');
+        return;
+      }
+
+      clearCountdownTimer();
+      setCountdown(0);
+      setIsStarting(false);
+      isStartingRef.current = false;
+      setIsPaused(false);
+      isPausedRef.current = false;
+      lastFrameTime.current = performance.now();
+    }, 800);
+  }, [clearCountdownTimer]);
 
   // Sync refs with state
   useEffect(() => { 
@@ -206,34 +244,29 @@ export const GameStage: React.FC<GameStageProps> = ({
   useEffect(() => {
     if (isPausedProp !== isPausedRef.current) {
       if (!isPausedProp) {
+        if (startCountdownToken > 0) {
+          return;
+        }
+
         // Resuming: Start countdown
-        setIsStarting(true);
-        isStartingRef.current = true;
-        setCountdown(3);
-        
-        let count = 3;
-        const timer = setInterval(() => {
-          count -= 1;
-          if (count > 0) {
-            setCountdown(count);
-            soundManager.play('tap');
-          } else {
-            clearInterval(timer);
-            setCountdown(0);
-            setIsStarting(false);
-            isStartingRef.current = false;
-            setIsPaused(false);
-            isPausedRef.current = false;
-            lastFrameTime.current = performance.now();
-          }
-        }, 800);
+        beginCountdown();
       } else {
         // Pausing
+        clearCountdownTimer();
+        setIsStarting(false);
+        isStartingRef.current = false;
+        setCountdown(0);
         setIsPaused(true);
         isPausedRef.current = true;
       }
     }
-  }, [isPausedProp]);
+  }, [beginCountdown, clearCountdownTimer, isPausedProp, startCountdownToken]);
+
+  useEffect(() => {
+    if (startCountdownToken > 0) {
+      beginCountdown();
+    }
+  }, [beginCountdown, startCountdownToken]);
 
   const sortedBottles = React.useMemo(() => {
     return [...bottles].sort((a, b) => a.y - b.y);
@@ -1092,9 +1125,10 @@ export const GameStage: React.FC<GameStageProps> = ({
     lastFrameTime.current = 0;
     requestRef.current = requestAnimationFrame(loop);
     return () => {
+      clearCountdownTimer();
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [difficulty, mode]);
+  }, [clearCountdownTimer, difficulty, mode]);
 
   // Debug Keyboard Shortcuts
   useEffect(() => {

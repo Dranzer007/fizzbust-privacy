@@ -112,13 +112,31 @@ export const GameOver: React.FC<{
   score: number, 
   mode: GameMode, 
   stats?: { pops: number, maxCombo: number, missed: number },
-  canRevive: boolean,
+  showReviveOption: boolean,
+  reviveEnabled: boolean,
+  isReviving?: boolean,
   isNewHighScore?: boolean,
   onRestart: () => void, 
   onMenu: () => void,
   onRevive: () => void,
+  onReviveUnavailable: () => void,
+  connectionStatus: 'ONLINE' | 'OFFLINE',
   difficulty: string
-}> = ({ score, mode, stats, canRevive, isNewHighScore, onRestart, onMenu, onRevive, difficulty }) => {
+}> = ({
+  score,
+  mode,
+  stats,
+  showReviveOption,
+  reviveEnabled,
+  isReviving = false,
+  isNewHighScore,
+  onRestart,
+  onMenu,
+  onRevive,
+  onReviveUnavailable,
+  connectionStatus,
+  difficulty,
+}) => {
   React.useEffect(() => {
     soundManager.play('win');
   }, []);
@@ -211,15 +229,25 @@ export const GameOver: React.FC<{
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-8 w-full max-w-2xl landscape:max-w-3xl landscape:gap-4">
-          {canRevive && (
+          {showReviveOption && (
             <button
               onClick={() => {
                 soundManager.play('tap');
-                onRevive();
+                if (reviveEnabled && !isReviving) {
+                  onRevive();
+                  return;
+                }
+
+                onReviveUnavailable();
               }}
-              className="flex-1 bg-sunset-teal text-white font-black uppercase tracking-[0.2em] py-4 sm:py-6 landscape:py-3 rounded-xl sm:rounded-2xl shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all text-[10px] sm:text-sm"
+              aria-disabled={!reviveEnabled || isReviving}
+              className={`flex-1 font-black uppercase tracking-[0.2em] py-4 sm:py-6 landscape:py-3 rounded-xl sm:rounded-2xl shadow-2xl transition-all text-[10px] sm:text-sm ${
+                reviveEnabled && !isReviving
+                  ? 'bg-sunset-teal text-white hover:scale-[1.02] active:scale-[0.98]'
+                  : 'bg-black/10 text-black/35'
+              }`}
             >
-              Continue Protocol
+              {isReviving ? 'Loading Reward...' : 'Watch Ad To Continue Protocol'}
             </button>
           )}
           <button
@@ -244,7 +272,7 @@ export const GameOver: React.FC<{
 
         {/* Footer Info */}
         <div className="mt-6 sm:mt-24 landscape:mt-2 w-full flex justify-between items-center border-t border-black/5 pt-2 sm:pt-8 opacity-30">
-          <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">Status: Offline</p>
+          <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">Status: {connectionStatus}</p>
           <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">ID: {sessionId}</p>
           <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">Ver: 1.0.8</p>
         </div>
