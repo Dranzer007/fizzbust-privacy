@@ -274,7 +274,7 @@ export const GameOver: React.FC<{
         <div className="mt-6 sm:mt-24 landscape:mt-2 w-full flex justify-between items-center border-t border-black/5 pt-2 sm:pt-8 opacity-30">
           <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">Status: {connectionStatus}</p>
           <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">ID: {sessionId}</p>
-          <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">Ver: 1.0.8</p>
+          <p className="text-[7px] sm:text-[10px] font-mono font-black uppercase tracking-widest">Ver: 1.0.9</p>
         </div>
       </div>
     </motion.div>

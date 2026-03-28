@@ -117,7 +117,7 @@ export const Settings: React.FC<SettingsProps> = ({ onBack }) => {
 
         <div className="mt-8 sm:mt-14 flex justify-between items-center opacity-20 px-1">
           <p className="text-[7px] sm:text-[8px] font-mono text-black uppercase tracking-[0.4em] font-black">
-            Settings v1.0.8
+            Settings v1.0.9
           </p>
           <p className="text-[7px] sm:text-[8px] font-mono text-black uppercase tracking-[0.4em] font-black">
             Status: Operational
