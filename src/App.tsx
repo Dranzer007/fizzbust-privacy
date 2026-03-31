@@ -11,10 +11,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ErrorBoundary } from './components/UI/ErrorBoundary';
 import { TutorialOverlay } from './components/UI/TutorialOverlay';
 import { RotationOverlay } from './components/UI/RotationOverlay';
+import { AgeGate } from './components/UI/AgeGate';
 
 import { soundManager } from './services/soundService';
 import { statsService } from './services/statsService';
-import { adService } from './services/adService';
+import { adService, type AdAudience } from './services/adService';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 
@@ -90,6 +91,8 @@ function AppContent() {
   const [gameState, setGameState] = useState<GameState>(GameState.LOADING);
   const [gameMode, setGameMode] = useState<GameMode>(GameMode.ENDLESS);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.EASY);
+  const [adAudience, setAdAudience] = useState<AdAudience | null>(() => adService.getStoredAudience());
+  const [isPreparingAds, setIsPreparingAds] = useState(false);
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [missedCount, setMissedCount] = useState(0);
@@ -132,10 +135,14 @@ function AppContent() {
   // #endregion
 
   React.useEffect(() => {
-    void adService.initialize().catch((error) => {
+    if (!adAudience) {
+      return;
+    }
+
+    void adService.initialize(adAudience).catch((error) => {
       // removed for production
     });
-  }, []);
+  }, [adAudience]);
 
   React.useEffect(() => {
     const updateOnlineStatus = () => {
@@ -192,6 +199,20 @@ function AppContent() {
     markTutorialSeen();
     setShowTutorial(false);
     setGameState(GameState.PLAYING);
+  }, []);
+
+  const handleAudienceSelection = React.useCallback((audience: AdAudience) => {
+    adService.saveAudienceSelection(audience);
+    setAdAudience(audience);
+    setIsPreparingAds(true);
+
+    void adService.initialize(audience)
+      .catch((error) => {
+        console.error('Failed to initialize AdMob audience settings:', error);
+      })
+      .finally(() => {
+        setIsPreparingAds(false);
+      });
   }, []);
 
   const [isNewHighScore, setIsNewHighScore] = React.useState(false);
@@ -589,6 +610,10 @@ function AppContent() {
       </AnimatePresence>
 
       <RotationOverlay />
+
+      {gameState !== GameState.LOADING && (!adAudience || isPreparingAds) && (
+        <AgeGate isSubmitting={isPreparingAds} onSelect={handleAudienceSelection} />
+      )}
     </div>
   );
 }

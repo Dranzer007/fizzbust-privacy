@@ -1,7 +1,16 @@
-import { AdMob, RewardAdPluginEvents, type AdOptions, type RewardAdOptions } from '@capacitor-community/admob';
+import {
+  AdMob,
+  MaxAdContentRating,
+  RewardAdPluginEvents,
+  type AdOptions,
+  type RewardAdOptions,
+} from '@capacitor-community/admob';
 import type { PluginListenerHandle } from '@capacitor/core';
 
 const IS_DEV = import.meta.env.DEV;
+const AD_AUDIENCE_STORAGE_KEY = 'fizz_bust_ad_audience';
+
+export type AdAudience = 'under13' | '13plus';
 
 const INTERSTITIAL_ID = IS_DEV
   ? 'ca-app-pub-3940256099942544/1033173712'
@@ -12,31 +21,115 @@ const REWARDED_ID = IS_DEV
   : import.meta.env.VITE_ADMOB_REWARDED_ID;
 
 const INTERSTITIAL_FREQUENCY = 3;
+const TESTING_DEVICES = IS_DEV ? ['EMULATOR'] : [];
 
 let gameCount = 0;
 let isInitialized = false;
+let initializedAudience: AdAudience | null = null;
+let initializingAudience: AdAudience | null = null;
+let initializationPromise: Promise<void> | null = null;
+let canRequestAds = false;
 
 const removeListeners = async (handles: PluginListenerHandle[]) => {
   await Promise.all(handles.map((handle) => handle.remove()));
 };
 
+const isKnownAudience = (value: string | null): value is AdAudience => {
+  return value === 'under13' || value === '13plus';
+};
+
+const getStoredAudience = (): AdAudience | null => {
+  try {
+    const storedValue = localStorage.getItem(AD_AUDIENCE_STORAGE_KEY);
+    return isKnownAudience(storedValue) ? storedValue : null;
+  } catch (error) {
+    console.warn('Failed to read ad audience preference:', error);
+    return null;
+  }
+};
+
+const buildInitializationOptions = (audience: AdAudience) => {
+  if (audience === 'under13') {
+    return {
+      initializeForTesting: IS_DEV,
+      testingDevices: TESTING_DEVICES,
+      tagForChildDirectedTreatment: true,
+      maxAdContentRating: MaxAdContentRating.General,
+    };
+  }
+
+  return {
+    initializeForTesting: IS_DEV,
+    testingDevices: TESTING_DEVICES,
+  };
+};
+
+const runConsentFlow = async (audience: AdAudience): Promise<void> => {
+  let consentInfo = await AdMob.requestConsentInfo({
+    tagForUnderAgeOfConsent: audience === 'under13',
+  });
+
+  if (!consentInfo.canRequestAds && consentInfo.isConsentFormAvailable) {
+    consentInfo = await AdMob.showConsentForm();
+  }
+
+  canRequestAds = consentInfo.canRequestAds;
+};
+
 export const adService = {
-  async initialize(): Promise<void> {
-    if (isInitialized) {
+  getStoredAudience(): AdAudience | null {
+    return getStoredAudience();
+  },
+
+  saveAudienceSelection(audience: AdAudience): void {
+    try {
+      localStorage.setItem(AD_AUDIENCE_STORAGE_KEY, audience);
+    } catch (error) {
+      console.warn('Failed to persist ad audience preference:', error);
+    }
+  },
+
+  async initialize(audience?: AdAudience): Promise<void> {
+    const resolvedAudience = audience ?? getStoredAudience();
+    if (!resolvedAudience) {
+      console.warn('Ad audience preference has not been selected yet.');
       return;
     }
 
-    if (!INTERSTITIAL_ID || !REWARDED_ID) {
+    if (!INTERSTITIAL_ID && !REWARDED_ID) {
       console.warn('AdMob ad unit IDs are missing. Ads will be disabled.');
       return;
     }
 
-    await AdMob.initialize({
-      initializeForTesting: import.meta.env.DEV,
-      testingDevices: import.meta.env.DEV ? ['EMULATOR'] : [],
-    });
+    if (isInitialized && initializedAudience === resolvedAudience) {
+      return;
+    }
 
-    isInitialized = true;
+    if (initializationPromise && initializingAudience === resolvedAudience) {
+      await initializationPromise;
+      return;
+    }
+
+    initializingAudience = resolvedAudience;
+    initializationPromise = (async () => {
+      await AdMob.initialize(buildInitializationOptions(resolvedAudience));
+      initializedAudience = resolvedAudience;
+      isInitialized = true;
+      await runConsentFlow(resolvedAudience);
+    })();
+
+    try {
+      await initializationPromise;
+    } finally {
+      if (initializationPromise) {
+        initializationPromise = null;
+        initializingAudience = null;
+      }
+    }
+  },
+
+  canServeAds(): boolean {
+    return isInitialized && canRequestAds;
   },
 
   incrementGameCount(): void {
@@ -56,6 +149,10 @@ export const adService = {
     try {
       await this.initialize();
 
+      if (!this.canServeAds()) {
+        return;
+      }
+
       const options: AdOptions = { adId: INTERSTITIAL_ID };
       await AdMob.prepareInterstitial(options);
       await AdMob.showInterstitial();
@@ -71,6 +168,10 @@ export const adService = {
     }
 
     await this.initialize();
+
+    if (!this.canServeAds()) {
+      return false;
+    }
 
     const options: RewardAdOptions = { adId: REWARDED_ID };
     let rewardEarned = false;
@@ -127,5 +228,5 @@ export const adService = {
     if (currentGameCount % INTERSTITIAL_FREQUENCY === 0) {
       await this.showInterstitial();
     }
-  }
+  },
 };
