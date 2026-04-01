@@ -65,8 +65,13 @@ const buildInitializationOptions = (audience: AdAudience) => {
 };
 
 const runConsentFlow = async (audience: AdAudience): Promise<void> => {
+  if (audience === 'under13') {
+    canRequestAds = false;
+    return;
+  }
+
   let consentInfo = await AdMob.requestConsentInfo({
-    tagForUnderAgeOfConsent: audience === 'under13',
+    tagForUnderAgeOfConsent: false,
   });
 
   if (!consentInfo.canRequestAds && consentInfo.isConsentFormAvailable) {
@@ -129,7 +134,7 @@ export const adService = {
   },
 
   canServeAds(): boolean {
-    return isInitialized && canRequestAds;
+    return isInitialized && initializedAudience === '13plus' && canRequestAds;
   },
 
   incrementGameCount(): void {

@@ -22,7 +22,84 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { LayoutProvider } from './context/LayoutContext';
 
 const TUTORIAL_STORAGE_KEY = 'fizz_bust_tutorial_seen';
+const BIRTH_DATE_STORAGE_KEY = 'fizz_bust_birth_date';
+const BIRTH_DATE_LOCKED_UNTIL_STORAGE_KEY = 'fizz_bust_birth_date_locked_until';
 let tutorialSeenFallback = false;
+
+const getStoredBirthDate = (): string | null => {
+  try {
+    const storedValue = localStorage.getItem(BIRTH_DATE_STORAGE_KEY);
+    return storedValue && /^\d{4}-\d{2}-\d{2}$/.test(storedValue) ? storedValue : null;
+  } catch (error) {
+    console.warn('Failed to read stored birth date:', error);
+    return null;
+  }
+};
+
+const saveBirthDate = (birthDate: string): void => {
+  try {
+    localStorage.setItem(BIRTH_DATE_STORAGE_KEY, birthDate);
+  } catch (error) {
+    console.warn('Failed to save birth date:', error);
+  }
+};
+
+const getStoredBirthDateLockedUntil = (): string | null => {
+  try {
+    const storedValue = localStorage.getItem(BIRTH_DATE_LOCKED_UNTIL_STORAGE_KEY);
+    if (!storedValue) {
+      return null;
+    }
+
+    const parsedDate = new Date(storedValue);
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
+  } catch (error) {
+    console.warn('Failed to read birth date lock:', error);
+    return null;
+  }
+};
+
+const saveBirthDateLockedUntil = (lockedUntil: string): void => {
+  try {
+    localStorage.setItem(BIRTH_DATE_LOCKED_UNTIL_STORAGE_KEY, lockedUntil);
+  } catch (error) {
+    console.warn('Failed to save birth date lock:', error);
+  }
+};
+
+const getNextBirthDateLockUntil = (): string => {
+  const lockUntil = new Date();
+  lockUntil.setFullYear(lockUntil.getFullYear() + 1);
+  return lockUntil.toISOString();
+};
+
+const deriveAudienceFromBirthDate = (birthDate: string): AdAudience => {
+  const [year, month, day] = birthDate.split('-').map(Number);
+  const now = new Date();
+  let age = now.getFullYear() - year;
+
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(month) ||
+    Number.isNaN(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return 'under13';
+  }
+
+  const hasHadBirthdayThisYear =
+    now.getMonth() + 1 > month ||
+    (now.getMonth() + 1 === month && now.getDate() >= day);
+
+  if (!hasHadBirthdayThisYear) {
+    age -= 1;
+  }
+
+  return age >= 13 ? '13plus' : 'under13';
+};
 
 const hasSeenTutorial = (): boolean => {
   if (tutorialSeenFallback) {
@@ -88,11 +165,20 @@ export default function App() {
 }
 
 function AppContent() {
+  const initialBirthDate = getStoredBirthDate();
+  const initialBirthDateLockedUntil = getStoredBirthDateLockedUntil();
   const [gameState, setGameState] = useState<GameState>(GameState.LOADING);
   const [gameMode, setGameMode] = useState<GameMode>(GameMode.ENDLESS);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.EASY);
-  const [adAudience, setAdAudience] = useState<AdAudience | null>(() => adService.getStoredAudience());
+  const [birthDate, setBirthDate] = useState<string | null>(initialBirthDate);
+  const [birthDateLockedUntil, setBirthDateLockedUntil] = useState<string | null>(initialBirthDateLockedUntil);
+  const [adAudience, setAdAudience] = useState<AdAudience | null>(() =>
+    initialBirthDate ? deriveAudienceFromBirthDate(initialBirthDate) : null
+  );
   const [isPreparingAds, setIsPreparingAds] = useState(false);
+  const [ageGateMode, setAgeGateMode] = useState<'required' | 'manage' | null>(() =>
+    initialBirthDate ? null : 'required'
+  );
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [missedCount, setMissedCount] = useState(0);
@@ -111,6 +197,30 @@ function AppContent() {
   const [reviveCountdownToken, setReviveCountdownToken] = useState(0);
   const gameStateRef = React.useRef(gameState);
   const offlineNoticeShownRef = React.useRef(false);
+  const birthDateLockTimestamp = birthDateLockedUntil ? new Date(birthDateLockedUntil).getTime() : null;
+  const isBirthdayLocked = Boolean(
+    birthDate &&
+    birthDateLockTimestamp !== null &&
+    birthDateLockTimestamp > Date.now()
+  );
+
+  const syncStoredBirthdayState = React.useCallback(() => {
+    if (!birthDate) {
+      return;
+    }
+
+    if (!birthDateLockedUntil) {
+      const nextBirthDateLockUntil = getNextBirthDateLockUntil();
+      saveBirthDateLockedUntil(nextBirthDateLockUntil);
+      setBirthDateLockedUntil(nextBirthDateLockUntil);
+    }
+
+    const derivedAudience = deriveAudienceFromBirthDate(birthDate);
+    if (adAudience !== derivedAudience) {
+      adService.saveAudienceSelection(derivedAudience);
+      setAdAudience(derivedAudience);
+    }
+  }, [adAudience, birthDate, birthDateLockedUntil]);
 
   // #region agent log
   React.useEffect(() => {
@@ -160,11 +270,15 @@ function AppContent() {
   }, []);
 
   React.useEffect(() => {
-    if (gameState === GameState.MENU && !isOnline && !offlineNoticeShownRef.current) {
+    if (gameState === GameState.MENU && adAudience === '13plus' && !isOnline && !offlineNoticeShownRef.current) {
       setShowOfflineRewardsNotice(true);
       offlineNoticeShownRef.current = true;
     }
-  }, [gameState, isOnline]);
+  }, [adAudience, gameState, isOnline]);
+
+  React.useEffect(() => {
+    syncStoredBirthdayState();
+  }, [syncStoredBirthdayState]);
 
   React.useEffect(() => {
     gameStateRef.current = gameState;
@@ -186,14 +300,14 @@ function AppContent() {
     setIsReviving(false);
     setShowReviveOfflineDialog(false);
     setShowOfflineRewardsNotice(false);
-    setSessionAllowsRewardRevive(isOnline);
+    setSessionAllowsRewardRevive(isOnline && adAudience === '13plus');
 
     if (!hasSeenTutorial()) {
       setShowTutorial(true);
     } else {
       setGameState(GameState.PLAYING);
     }
-  }, [isOnline]);
+  }, [adAudience, isOnline]);
 
   const handleTutorialComplete = React.useCallback(() => {
     markTutorialSeen();
@@ -201,9 +315,17 @@ function AppContent() {
     setGameState(GameState.PLAYING);
   }, []);
 
-  const handleAudienceSelection = React.useCallback((audience: AdAudience) => {
+  const handleBirthDateSubmit = React.useCallback((nextBirthDate: string) => {
+    const audience = deriveAudienceFromBirthDate(nextBirthDate);
+    const nextBirthDateLockUntil = getNextBirthDateLockUntil();
+
+    saveBirthDate(nextBirthDate);
+    saveBirthDateLockedUntil(nextBirthDateLockUntil);
     adService.saveAudienceSelection(audience);
+    setBirthDate(nextBirthDate);
+    setBirthDateLockedUntil(nextBirthDateLockUntil);
     setAdAudience(audience);
+    setAgeGateMode(null);
     setIsPreparingAds(true);
 
     void adService.initialize(audience)
@@ -214,6 +336,20 @@ function AppContent() {
         setIsPreparingAds(false);
       });
   }, []);
+
+  const handleManageAudience = React.useCallback(() => {
+    if (birthDate && isBirthdayLocked) {
+      return;
+    }
+
+    setAgeGateMode('manage');
+  }, [birthDate, isBirthdayLocked]);
+
+  const handleAgeGateCancel = React.useCallback(() => {
+    if (ageGateMode === 'manage') {
+      setAgeGateMode(null);
+    }
+  }, [ageGateMode]);
 
   const [isNewHighScore, setIsNewHighScore] = React.useState(false);
 
@@ -255,7 +391,7 @@ function AppContent() {
       return;
     }
 
-    if (!sessionAllowsRewardRevive || !isOnline) {
+    if (!sessionAllowsRewardRevive || !isOnline || adAudience !== '13plus') {
       setShowReviveOfflineDialog(true);
       return;
     }
@@ -277,13 +413,13 @@ function AppContent() {
     } finally {
       setIsReviving(false);
     }
-  }, [isOnline, isReviving, sessionAllowsRewardRevive]);
+  }, [adAudience, isOnline, isReviving, sessionAllowsRewardRevive]);
 
   const handleReturnToMenu = React.useCallback(async () => {
     soundManager.stopMusic();
 
     try {
-      if (adService.shouldShowInterstitial()) {
+      if (adAudience === '13plus' && adService.shouldShowInterstitial()) {
         await adService.showInterstitial();
       }
     } catch (error) {
@@ -293,7 +429,7 @@ function AppContent() {
     setGameState(GameState.MENU);
     setReviveCountdownToken(0);
     setIsReviving(false);
-  }, []);
+  }, [adAudience]);
 
   const handlePressureUpdate = React.useCallback((progress: number) => {
     setPressureProgress(progress);
@@ -315,11 +451,14 @@ function AppContent() {
     const handleVisibilityChange = () => {
       if (document.hidden || document.visibilityState === 'hidden') {
         pauseForBackground();
+      } else {
+        syncStoredBirthdayState();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', pauseForBackground);
+    window.addEventListener('pageshow', syncStoredBirthdayState);
     window.addEventListener('freeze', pauseForBackground as EventListener);
 
     const capListeners: { remove: () => void }[] = [];
@@ -336,7 +475,11 @@ function AppContent() {
     if (Capacitor.isNativePlatform()) {
       addCapListener(
         CapacitorApp.addListener('appStateChange', (state) => {
-          if (!state.isActive) pauseForBackground();
+          if (!state.isActive) {
+            pauseForBackground();
+          } else {
+            syncStoredBirthdayState();
+          }
         })
       );
       addCapListener(
@@ -344,15 +487,21 @@ function AppContent() {
           pauseForBackground();
         })
       );
+      addCapListener(
+        CapacitorApp.addListener('resume', () => {
+          syncStoredBirthdayState();
+        })
+      );
     }
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', pauseForBackground);
+      window.removeEventListener('pageshow', syncStoredBirthdayState);
       window.removeEventListener('freeze', pauseForBackground as EventListener);
       capListeners.forEach((listener) => listener.remove());
     };
-  }, []);
+  }, [syncStoredBirthdayState]);
 
   const handlePause = React.useCallback(() => {
     if (gameState === GameState.PLAYING) {
@@ -438,7 +587,14 @@ function AppContent() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
             >
-              <Settings onBack={handleCloseSettings} />
+              <Settings
+                onBack={handleCloseSettings}
+                birthDate={birthDate}
+                birthDateLockedUntil={birthDateLockedUntil}
+                isBirthdayLocked={isBirthdayLocked}
+                isUpdatingAudience={isPreparingAds}
+                onManageAudience={handleManageAudience}
+              />
             </motion.div>
           )}
 
@@ -568,7 +724,7 @@ function AppContent() {
                 maxCombo: maxCombo,
                 missed: missedCount
               }}
-              showReviveOption={!hasRevived && sessionAllowsRewardRevive}
+              showReviveOption={!hasRevived && sessionAllowsRewardRevive && adAudience === '13plus'}
               reviveEnabled={isOnline && !isReviving}
               isReviving={isReviving}
               isNewHighScore={isNewHighScore}
@@ -611,8 +767,14 @@ function AppContent() {
 
       <RotationOverlay />
 
-      {gameState !== GameState.LOADING && (!adAudience || isPreparingAds) && (
-        <AgeGate isSubmitting={isPreparingAds} onSelect={handleAudienceSelection} />
+      {gameState !== GameState.LOADING && ageGateMode !== null && (
+        <AgeGate
+          initialBirthDate={birthDate}
+          isSubmitting={isPreparingAds}
+          canCancel={ageGateMode === 'manage'}
+          onCancel={handleAgeGateCancel}
+          onSubmit={handleBirthDateSubmit}
+        />
       )}
     </div>
   );

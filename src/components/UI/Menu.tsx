@@ -15,6 +15,7 @@ interface MenuProps {
 
 export const Menu: React.FC<MenuProps> = ({ onPlay, onStateChange }) => {
   const [stats, setStats] = useState<any>(null);
+  const menuBackgroundVideoRef = React.useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -24,12 +25,70 @@ export const Menu: React.FC<MenuProps> = ({ onPlay, onStateChange }) => {
     loadStats();
   }, []);
 
+  useEffect(() => {
+    const video = menuBackgroundVideoRef.current;
+    if (!video) {
+      return;
+    }
+
+    let hasFrozen = false;
+    const freezeAtThreeSeconds = () => {
+      if (hasFrozen || video.currentTime < 3) {
+        return;
+      }
+
+      hasFrozen = true;
+      video.currentTime = 3;
+      video.pause();
+    };
+
+    const handleLoadedData = () => {
+      video.muted = true;
+      void video.play().catch(() => {
+        video.pause();
+      });
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData);
+    video.addEventListener('timeupdate', freezeAtThreeSeconds);
+
+    const fallbackFreeze = window.setTimeout(() => {
+      freezeAtThreeSeconds();
+    }, 3200);
+
+    return () => {
+      window.clearTimeout(fallbackFreeze);
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('timeupdate', freezeAtThreeSeconds);
+    };
+  }, []);
+
   const bestCombo = stats?.maxCombos?.[GameMode.ENDLESS] 
     ? Math.max(...Object.values(stats.maxCombos[GameMode.ENDLESS]) as number[]) 
     : 0;
 
   return (
-    <div className="fixed inset-0 flex flex-col landscape:flex-row items-stretch justify-between overflow-y-auto bg-white select-none">
+    <div className="fixed inset-0 flex flex-col landscape:flex-row items-stretch justify-between overflow-y-auto bg-black select-none">
+      <div className="absolute inset-0 overflow-hidden">
+        <img
+          src="/assets/menu_background_static.png"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          aria-hidden="true"
+        />
+        <video
+          ref={menuBackgroundVideoRef}
+          className="absolute inset-0 w-full h-full object-cover"
+          src="/assets/menu_background.mp4"
+          poster="/assets/menu_background_static.png"
+          autoPlay
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden="true"
+        />
+      </div>
+
       {/* LEFT PANEL */}
       <div 
         className="relative z-40 flex flex-col items-center landscape:items-start py-4 sm:py-8 landscape:py-6 text-center landscape:text-left justify-between min-h-[45vh] sm:min-h-[50vh] landscape:h-full w-full landscape:w-[42%]"
@@ -38,47 +97,7 @@ export const Menu: React.FC<MenuProps> = ({ onPlay, onStateChange }) => {
           paddingRight: 'max(16px, 5vw)'
         }}
       >
-        <div className="flex flex-col items-center landscape:items-start mt-2 sm:mt-8 w-full">
-          {/* Logo */}
-          <Draggable id="menu-logo" className="pointer-events-auto">
-            <motion.div
-              initial={{ opacity: 0, x: -50 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="relative group"
-              style={{ 
-                width: 'clamp(120px, 28vw, 480px)',
-                marginBottom: 'clamp(4px, 1.5vh, 20px)'
-              }}
-            >
-              <img 
-                src="/assets/logo_fizz_bust.png" 
-                alt="FIZZ BUST" 
-                className="w-full h-auto mix-blend-multiply contrast-[1.5] brightness-[1.1]"
-                referrerPolicy="no-referrer"
-              />
-            </motion.div>
-          </Draggable>
-          
-          {/* Tagline */}
-          <Draggable id="menu-tagline" className="pointer-events-auto">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="relative group"
-            >
-              <p 
-                className="font-mono text-[#666] uppercase tracking-widest leading-[1.5]"
-                style={{ 
-                  fontSize: 'clamp(7px, 1vw, 14px)',
-                  maxWidth: '80vw'
-                }}
-              >
-                THE ULTIMATE SODA POPPING CHALLENGE.
-              </p>
-            </motion.div>
-          </Draggable>
-        </div>
+        <div className="mt-2 sm:mt-8 w-full" aria-hidden="true" />
 
         {/* Play Button */}
         <Draggable id="menu-play-btn" className="pointer-events-auto">
@@ -171,7 +190,7 @@ export const Menu: React.FC<MenuProps> = ({ onPlay, onStateChange }) => {
                   soundManager.play('tap');
                   onStateChange(GameState.STATS);
                 }}
-                className="w-full bg-white flex items-center justify-between hover:bg-gray-50 transition-all shadow-sm border border-gray-100"
+                className="w-full bg-white/95 backdrop-blur-sm flex items-center justify-between hover:bg-white transition-all shadow-sm border border-white/40"
                 style={{ 
                   height: 'clamp(32px, 5.5vw, 72px)',
                   borderRadius: 'clamp(6px, 1.2vw, 16px)',
@@ -207,7 +226,7 @@ export const Menu: React.FC<MenuProps> = ({ onPlay, onStateChange }) => {
                   soundManager.play('tap');
                   onStateChange(GameState.SETTINGS);
                 }}
-                className="w-full bg-white flex items-center justify-between hover:bg-gray-50 transition-all shadow-sm border border-gray-100"
+                className="w-full bg-white/95 backdrop-blur-sm flex items-center justify-between hover:bg-white transition-all shadow-sm border border-white/40"
                 style={{ 
                   height: 'clamp(32px, 5.5vw, 72px)',
                   borderRadius: 'clamp(6px, 1.2vw, 16px)',
@@ -235,7 +254,7 @@ export const Menu: React.FC<MenuProps> = ({ onPlay, onStateChange }) => {
                 initial={{ opacity: 0, x: 50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.6 }}
-                className="relative group w-full bg-[#F5F5F5] flex flex-col justify-center overflow-hidden"
+                className="relative group w-full bg-white/90 backdrop-blur-sm flex flex-col justify-center overflow-hidden"
                 style={{ 
                   height: 'clamp(48px, 12vh, 110px)',
                   borderRadius: 'clamp(6px, 1.2vw, 16px)',
@@ -282,35 +301,6 @@ export const Menu: React.FC<MenuProps> = ({ onPlay, onStateChange }) => {
             </Draggable>
           )}
 
-          {/* SPONSORED banner */}
-          <Draggable id="menu-ad" className="pointer-events-auto">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.7 }}
-              className="relative group w-full bg-black/5 flex items-center justify-between px-4"
-              style={{ 
-                height: 'clamp(24px, 5vh, 48px)',
-                borderRadius: 'clamp(4px, 0.8vw, 8px)'
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <div className="bg-black/10 px-1 rounded text-[7px] font-bold">AD</div>
-                <span 
-                  className="font-bold text-black/40 uppercase tracking-tight"
-                  style={{ fontSize: 'clamp(8px, 1vw, 13px)' }}
-                >
-                  Fizz Blast Pro
-                </span>
-              </div>
-              <span 
-                className="font-black text-black/20 uppercase"
-                style={{ fontSize: 'clamp(7px, 0.9vw, 11px)' }}
-              >
-                Sponsored
-              </span>
-            </motion.div>
-          </Draggable>
         </div>
       </div>
     </div>

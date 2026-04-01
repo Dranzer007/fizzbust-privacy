@@ -4,9 +4,21 @@ import { soundManager } from '../../services/soundService';
 
 interface SettingsProps {
   onBack: () => void;
+  birthDate: string | null;
+  birthDateLockedUntil: string | null;
+  isBirthdayLocked: boolean;
+  isUpdatingAudience: boolean;
+  onManageAudience: () => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ onBack }) => {
+export const Settings: React.FC<SettingsProps> = ({
+  onBack,
+  birthDate,
+  birthDateLockedUntil,
+  isBirthdayLocked,
+  isUpdatingAudience,
+  onManageAudience,
+}) => {
   const [musicMuted, setMusicMuted] = useState(soundManager.getMusicMuteState());
   const [sfxMuted, setSfxMuted] = useState(soundManager.getSfxMuteState());
   const [hapticsEnabled, setHapticsEnabled] = useState(soundManager.getHapticsState());
@@ -29,7 +41,25 @@ export const Settings: React.FC<SettingsProps> = ({ onBack }) => {
     soundManager.play('tap');
   };
 
+  const handleManageAudience = () => {
+    soundManager.play('tap');
+    onManageAudience();
+  };
+
   const toggleKnobX = typeof window !== 'undefined' && window.innerWidth < 640 ? 36 : 44;
+  const birthdayButtonLabel = !birthDate
+    ? 'Set Birthday'
+    : isBirthdayLocked
+      ? 'Birthday Locked'
+      : 'Update Birthday';
+  const birthdayLockLabel = birthDateLockedUntil
+    ? new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }).format(new Date(birthDateLockedUntil))
+    : null;
+  const isBirthdayButtonDisabled = isUpdatingAudience || isBirthdayLocked;
 
   return (
     <div className="fixed inset-0 bg-white overflow-y-auto select-none">
@@ -113,11 +143,46 @@ export const Settings: React.FC<SettingsProps> = ({ onBack }) => {
               />
             </button>
           </div>
+
+          <div className="bg-black/5 p-5 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] flex flex-col gap-4 border border-black/5 group hover:bg-black/10 transition-all min-h-[180px] lg:col-span-2">
+            <div className="flex flex-col">
+              <p className="text-[8px] sm:text-[10px] font-black text-black/20 uppercase tracking-[0.4em] mb-1">Parental Controls</p>
+              <h3 className="text-xl sm:text-3xl font-display italic text-black uppercase tracking-tighter">Birthday</h3>
+            </div>
+
+            <button
+              type="button"
+              disabled={isBirthdayButtonDisabled}
+              onClick={handleManageAudience}
+              className={`w-full rounded-2xl border border-black/10 bg-white px-5 py-4 text-left transition-all hover:border-black/20 ${
+                isBirthdayButtonDisabled ? 'cursor-not-allowed opacity-70' : ''
+              }`}
+            >
+              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-black/30">
+                {isBirthdayLocked ? 'Locked' : 'Review'}
+              </p>
+              <p className="mt-2 text-lg font-black uppercase tracking-tight text-black">
+                {birthdayButtonLabel}
+              </p>
+            </button>
+
+            {isBirthdayLocked && birthdayLockLabel && (
+              <p className="text-[10px] font-mono uppercase tracking-[0.25em] text-black/35">
+                Available again: {birthdayLockLabel}
+              </p>
+            )}
+
+            {isUpdatingAudience && (
+              <p className="text-[10px] font-mono uppercase tracking-[0.25em] text-black/35">
+                Updating ad settings...
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="mt-8 sm:mt-14 flex justify-between items-center opacity-20 px-1">
           <p className="text-[7px] sm:text-[8px] font-mono text-black uppercase tracking-[0.4em] font-black">
-            Settings v1.0.9
+            Settings v1.0.10
           </p>
           <p className="text-[7px] sm:text-[8px] font-mono text-black uppercase tracking-[0.4em] font-black">
             Status: Operational
